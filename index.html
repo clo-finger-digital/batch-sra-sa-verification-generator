@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRA & SA Dual-Pipeline Automation Hub</title>
+    <!-- Tailwind CSS for modern production UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Pyodide Core Engine for Serverless Client-Side Python Execution -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased">
+    <div class="max-w-4xl mx-auto px-4 py-12">
+        <header class="border-b border-slate-800 pb-6 mb-8">
+            <h1 class="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">SRA & SA Dual-Pipeline Hub</h1>
+            <p class="mt-2 text-sm text-slate-400">Compile Work Assignment Briefs (WAB), follow-up spreadsheets, and code review sheets into final compliant SRA or SA artifacts entirely in-browser.</p>
+        </header>
+
+        <!-- PIPELINE TABS -->
+        <div class="border-b border-slate-700 mb-6">
+            <nav class="flex space-x-4" aria-label="Tabs">
+                <button onclick="switchTab('sra')" id="tab_sra" class="px-4 py-2 text-sm font-medium border-b-2 border-blue-500 text-blue-400">
+                    SRA Pipeline (Batch SRA)
+                </button>
+                <button onclick="switchTab('sa')" id="tab_sa" class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-300">
+                    SA Pipeline (Security Audit)
+                </button>
+            </nav>
+        </div>
+
+        <main class="space-y-6">
+            <!-- UI VARIABLES PANEL -->
+            <section class="bg-slate-800 rounded-lg p-6 border border-slate-700 shadow-xl space-y-4">
+                <h2 class="text-xl font-bold text-white mb-4">Pipeline Injector Variables</h2>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Company Name</label>
+                        <input type="text" id="company_name" value="SunnyVision Ltd." class="w-full bg-slate-950 border border-slate-700 rounded p-2.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Company Abbreviation</label>
+                        <input type="text" id="company_abbr" value="SV" class="w-full bg-slate-950 border border-slate-700 rounded p-2.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Testee Name (Department)</label>
+                        <input type="text" id="testee_name" value="Civil Service Bureau" class="w-full bg-slate-950 border border-slate-700 rounded p-2.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Testee Abbreviation</label>
+                        <input type="text" id="testee_abbr" value="CSB" class="w-full bg-slate-950 border border-slate-700 rounded p-2.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+                    </div>
+                </div>
+            </section>
+
+            <!-- DATA SOURCE FILE UPLOADS -->
+            <section class="bg-slate-800 rounded-lg p-6 border border-slate-700 shadow-xl space-y-4">
+                <h2 class="text-xl font-bold text-white mb-2" id="document_panel_title">Mandatory SRA Document Batch Collection</h2>
+                <p class="text-xs text-slate-400 mb-4" id="template_notif_hint">Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">batch SRA template_3.docx</code>.</p>
+                
+                <div class="space-y-4">
+                    <div class="p-4 bg-slate-950 border border-dashed border-blue-500/50 rounded-lg">
+                        <label class="block text-xs font-semibold text-blue-400 uppercase tracking-wider mb-2">(1) Work Assignment Brief WAB (.docx) *Required</label>
+                        <input type="file" id="file_wab" accept=".docx" class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-900/50 file:text-blue-200 hover:file:bg-blue-800 cursor-pointer">
+                    </div>
+                    
+                    <!-- SRA Pipeline Exclusive Elements -->
+                    <div id="sra_plan_group" class="p-4 bg-slate-950 border border-dashed border-blue-500/50 rounded-lg">
+                        <label class="block text-xs font-semibold text-blue-400 uppercase tracking-wider mb-2">(2) Follow-Up Plan Spreadsheets (.xlsx) *Upload Multiple Allowed</label>
+                        <input type="file" id="files_plan" accept=".xlsx" multiple class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-900/50 file:text-blue-200 hover:file:bg-blue-800 cursor-pointer">
+                    </div>
+                    <div id="sra_code_group" class="p-4 bg-slate-950 border border-dashed border-blue-500/50 rounded-lg">
+                        <label class="block text-xs font-semibold text-blue-400 uppercase tracking-wider mb-2">(3) Code Review Spreadsheets (.xlsx) *Upload Multiple Allowed</label>
+                        <input type="file" id="files_codereview" accept=".xlsx" multiple class="block w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-blue-900/50 file:text-blue-200 hover:file:bg-blue-800 cursor-pointer">
+                    </div>
+                </div>
+
+                <div class="pt-4">
+                    <button id="run_pipeline_btn" onclick="triggerActivePipeline()" class="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold py-3 px-4 rounded transition duration-200 shadow-lg disabled:opacity-50" disabled>
+                        Loading Virtual Env Package Handlers...
+                    </button>
+                </div>
+            </section>
+
+            <!-- Console Log Window -->
+            <section class="bg-slate-955 rounded-lg border border-slate-800 p-4 shadow-inner">
+                <span class="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">System Execution Log</span>
+                <pre id="console_output" class="text-xs font-mono text-emerald-400 overflow-x-auto whitespace-pre-wrap max-h-64">System initialized. Setting up WASM modules...</pre>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        let pyodideModule = null;
+        let activePipeline = 'sra'; // Options: 'sra' or 'sa'
+
+        async function initPyodide() {
+            try {
+                logToConsole("Loading Pyodide WebAssembly Core Engine Architecture...");
+                pyodideModule = await loadPyodide();
+                
+                logToConsole("Configuring package distribution bootstrap manager (micropip)...");
+                await pyodideModule.loadPackage(["micropip", "pandas"]);
+                
+                logToConsole("Auto-installing file pipeline packages (openpyxl, python-docx)...");
+                await pyodideModule.runPythonAsync(`
+                    import micropip
+                    await micropip.install('openpyxl')
+                    await micropip.install('python-docx')
+                `);
+                
+                logToConsole("Environment Ready. Serverless batch pipeline workspace active!");
+                const runBtn = document.getElementById("run_pipeline_btn");
+                runBtn.disabled = false;
+                updateButtonLabel();
+            } catch (err) {
+                logToConsole("WASM Critical Error: " + err.message);
+            }
+        }
+        initPyodide();
+
+        function logToConsole(message) {
+            if (!message || !message.trim()) return;
+            const out = document.getElementById("console_output");
+            out.textContent += "\n" + message;
+            out.scrollTop = out.scrollHeight;
+        }
+
+        function switchTab(pipeline) {
+            activePipeline = pipeline;
+            const tabSra = document.getElementById('tab_sra');
+            const tabSa = document.getElementById('tab_sa');
+            const planGroup = document.getElementById('sra_plan_group');
+            const codeGroup = document.getElementById('sra_code_group');
+            const title = document.getElementById('document_panel_title');
+            const hint = document.getElementById('template_notif_hint');
+
+            if (pipeline === 'sra') {
+                tabSra.className = "px-4 py-2 text-sm font-medium border-b-2 border-blue-500 text-blue-400";
+                tabSa.className = "px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-300";
+                planGroup.classList.remove('hidden');
+                codeGroup.classList.remove('hidden');
+                title.innerText = "Mandatory SRA Document Batch Collection";
+                hint.innerHTML = 'Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">batch SRA template_3.docx</code>.';
+            } else {
+                tabSa.className = "px-4 py-2 text-sm font-medium border-b-2 border-blue-500 text-blue-400";
+                tabSra.className = "px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-300";
+                planGroup.classList.add('hidden');
+                codeGroup.classList.add('hidden');
+                title.innerText = "Mandatory SA Document Collection (WAB Only)";
+                hint.innerHTML = 'Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">batch SA template.docx</code>.';
+            }
+            updateButtonLabel();
+        }
+
+        function updateButtonLabel() {
+            const runBtn = document.getElementById("run_pipeline_btn");
+            if (!runBtn.disabled) {
+                runBtn.innerText = activePipeline === 'sra' ? "Compile Batch SRA Report" : "Compile Batch SA Report";
+            }
+        }
+
+        async function readMultipleFiles(elementId) {
+            const el = document.getElementById(elementId);
+            if (!el.files || el.files.length === 0) return [];
+            let filesList = [];
+            for (let i = 0; i < el.files.length; i++) {
+                const file = el.files[i];
+                const buffer = await file.arrayBuffer();
+                filesList.push({ name: file.name, data: new Uint8Array(buffer) });
+            }
+            return filesList;
+        }
+
+        function triggerActivePipeline() {
+            if (activePipeline === 'sra') {
+                executeSRAPipeline();
+            } else {
+                executeSAPipeline();
+            }
+        }
+
+        // ==========================================
+        // PIPELINE 1: SRA GENERATION
+        // ==========================================
+        async function executeSRAPipeline() {
+            if (!pyodideModule) {
+                alert("The virtual runtime packages are compiling inside the sandbox. Please give it a brief moment.");
+                return;
+            }
+            
+            const cName = document.getElementById("company_name").value;
+            const cAbbr = document.getElementById("company_abbr").value;
+            const tName = document.getElementById("testee_name").value;
+            const tAbbr = document.getElementById("testee_abbr").value;
+
+            const iWabList = await readMultipleFiles("file_wab");
+            const iPlanList = await readMultipleFiles("files_plan");
+            const iCodeList = await readMultipleFiles("files_codereview");
+
+            if (iWabList.length === 0 || iPlanList.length === 0 || iCodeList.length === 0) {
+                logToConsole("Validation Failed: Compile aborted. WAB, Follow Up Plan batch, and Code Review batch are all strictly required for SRA compilation.");
+                alert("Please submit all required documents to run batch generation.");
+                return;
+            }
+
+            const today = new Date();
+            const monthText = today.toLocaleDateString("en-US", { month: "long" }).toUpperCase();
+            const yearText = today.getFullYear();
+            const computedDateText = `${monthText} ${yearText}`;
+            
+            const dayNum = String(today.getDate()).padStart(2, '0');
+            const monthNum = String(today.getMonth() + 1).padStart(2, '0');
+            const computedDateNumeric = `${dayNum}-${monthNum}-${yearText}`;
+
+            logToConsole("Fetching base 'batch SRA template_3.docx' file blueprint...");
+            try {
+                const response = await fetch("./batch%20SRA%20template_3.docx");
+                if (!response.ok) throw new Error("Template access error 404. Check that 'batch SRA template_3.docx' is tracked in root folder.");
+                const templateBuffer = await response.arrayBuffer();
+                const templateData = new Uint8Array(templateBuffer);
+                
+                try { pyodideModule.FS.unlink("batch_sra_template.docx"); } catch(e){}
+                pyodideModule.FS.writeFile("batch_sra_template.docx", templateData);
+            } catch (err) {
+                logToConsole("Fetch Error: " + err.message);
+                return;
+            }
+
+            const iWab = iWabList[0];
+            try { pyodideModule.FS.unlink(iWab.name); } catch(e) {}
+            pyodideModule.FS.writeFile(iWab.name, iWab.data);
+
+            let planFileNames = [];
+            iPlanList.forEach(f => {
+                try { pyodideModule.FS.unlink(f.name); } catch(e) {}
+                pyodideModule.FS.writeFile(f.name, f.data);
+                planFileNames.push(f.name);
+            });
+
+            let codeFileNames = [];
+            iCodeList.forEach(f => {
+                try { pyodideModule.FS.unlink(f.name); } catch(e) {}
+                pyodideModule.FS.writeFile(f.name, f.data);
+                codeFileNames.push(f.name);
+            });
+
+            pyodideModule.globals.set("JS_COMPANY_NAME", cName);
+            pyodideModule.globals.set("JS_COMPANY_ABBREVIATION", cAbbr);
+            pyodideModule.globals.set("JS_TESTEE_NAME", tName);
+            pyodideModule.globals.set("JS_TESTEE_ABBREVIATION", tAbbr);
+            pyodideModule.globals.set("JS_WAB_NAME", iWab.name);
+            pyodideModule.globals.set("JS_PLAN_FILES", pyodideModule.toPy(planFileNames));
+            pyodideModule.globals.set("JS_CODE_FILES", pyodideModule.toPy(codeFileNames));
+            pyodideModule.globals.set("JS_COMPUTED_DATE_TEXT", computedDateText);
+            pyodideModule.globals.set("JS_COMPUTED_DATE_NUMERIC", computedDateNumeric);
+
+            const pythonScript = `
+import os
+import sys
+import re
+
+class BrowserLogRedirect:
+    def write(self, s):
+        import js
+        js.logToConsole(str(s))
+    def flush(self): pass
+
+sys.stdout = BrowserLogRedirect()
+sys.stderr = BrowserLogRedirect()
+
+from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from openpyxl import load_workbook
+from docx.oxml import CT_Tbl, OxmlElement
+from docx.oxml.ns import qn
+
+company_name = JS_COMPANY_NAME
+company_abbr = JS_COMPANY_ABBREVIATION
+testee_name = JS_TESTEE_NAME
+testee_abbr = JS_TESTEE_ABBREVIATION
+current_date_text = JS_COMPUTED_DATE_TEXT
+current_date_numeric = JS_COMPUTED_DATE_NUMERIC
+
+def apply_text_styling_and_borders(cell, text, center=False):
+    cell.text = ""
+    p = cell.paragraphs[0]
+    if center:
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run(text)
+    run.font.name = 'Times New Roman'
+    run.font.size = Pt(10)
+        
+    tcPr = cell._tc.get_or_add_tcPr()
+    tcBorders = OxmlElement('w:tcBorders')
+    for border_name in ['top', 'left', 'bottom', 'right']:
+        border = OxmlElement(f'w:{border_name}')
+        border.set(qn('w:val'), 'single')
+        border.set(qn('w:sz'), '4')
+        border.set(qn('w:space'), '0')
+        border.set(qn('w:color'), 'auto')
+        tcBorders.append(border)
+    tcPr.append(tcBorders)
+
+def insert_paragraph_after(paragraph, text, style=None):
+    doc_instance = paragraph.part.document
+    new_p = doc_instance.add_paragraph(style=style)
+    new_p.text = text
+    p_element = paragraph._p
+    p_element.addnext(new_p._p)
+    return new_p
+
+def extract_system_name(filename):
+    clean_name = os.path.splitext(filename)[0]
+    for split_word in ["Follow-Up Plan", "Follow-up Action Plan", "Code Review"]:
+        if split_word.lower() in clean_name.lower():
+            p_re = re.compile(re.escape(split_word), re.IGNORECASE)
+            clean_name = p_re.sub("", clean_name)
+    clean_name = clean_name.replace("-", "").replace("_", "").strip()
+    return clean_name
+
+# Global metrics breakdown for SRA section summaries
+global_ops_metrics = {"high": 0, "medium": 0, "low": 0, "aoi": 0}
+global_sam_metrics = {"high": 0, "medium": 0, "low": 0, "aoi": 0}
+
+system_vulnerabilities_map = {} # Maps system -> [...]
+system_code_reviews_map = {}    # Maps system -> [...]
+
+print("Parsing WAB Major System Description block to compile full system inventory list...")
+wab_doc = Document(JS_WAB_NAME)
+
+detected_systems_list = []
+found_major_systems = False
+
+for p in list(wab_doc.paragraphs):
+    txt = p.text.strip()
+    if not txt: continue
+    
+    # Precise triggers matching: "The tentative major information systems..." up to "A security audit"
+    if "the tentative major information systems" in txt.lower():
+        found_major_systems = True
+        continue
+    if found_major_systems and "a security audit" in txt.lower():
+        found_major_systems = False
+        break
+        
+    if found_major_systems:
+        cleaned_sys = txt.strip()
+        if cleaned_sys and cleaned_sys not in detected_systems_list:
+            detected_systems_list.append(cleaned_sys)
+
+print(f"Total systems extracted from WAB: {len(detected_systems_list)}")
+
+# Helper to build grammatical severity phrase dynamically based on findings that actually exist
+def generate_dynamic_count_string(metrics_dict):
+    parts = []
+    for level in ["high", "medium", "low", "aoi"]:
+        cnt = metrics_dict[level]
+        if cnt > 0:
+            label = "AOI" if level == "aoi" else level
+            parts.append(f"{cnt} {label}")
+    if not parts:
+        return "0 risk items"
+    if len(parts) == 1:
+        return f"{parts[0]} items"
+    elif len(parts) == 2:
+        return f"{parts[0]} and {parts[1]} items"
+    else:
+        return ", ".join(parts[:-1]) + f", and {parts[-1]} items"
+
+# Process Vulnerability Follow-Up Plans
+for pf in list(JS_PLAN_FILES):
+    sys_name = extract_system_name(pf)
+    if sys_name not in system_vulnerabilities_map:
+        system_vulnerabilities_map[sys_name] = []
+        
+    wb = load_workbook(pf, data_only=True)
+    sheet = wb.active
+    groups_v = {}
+    
+    for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
+        if row_idx < 2 or len(row) <= 2 or row[2] is None: 
+            continue
+        obs_num = str(row[2]).strip().upper()
+        if not (obs_num.startswith("V") or obs_num.startswith("A")):
+            continue
+            
+        raw_ip = str(row[3]).strip() if row[3] is not None else ""
+        raw_port = str(row[4]).strip() if (len(row) > 4 and row[4] is not None) else ""
+        
+        ip_lines = [line.strip() for line in raw_ip.split('\\n') if line.strip()]
+        resolved_hosts = []
+        for ip in ip_lines:
+            if raw_port and ":" not in ip and str(raw_port) not in ip:
+                resolved_hosts.append(f"{ip}:{raw_port}")
+            else:
+                resolved_hosts.append(ip if ip else testee_abbr)
+                
+        vuln_name = str(row[8]).strip() if row[8] is not None else ""    
+        threat_desc = str(row[9]).strip() if row[9] is not None else ""  
+        remediation = str(row[10]).strip() if row[10] is not None else "" 
+        severity = str(row[11]).strip() if row[11] is not None else "Low" 
+        
+        sev_title = severity.strip().title()
+        if "aoi" in severity.lower(): sev_title = "AOI"
+        sev_key = "aoi" if sev_title == "AOI" else sev_title.lower()
+        
+        if sev_title == "AOI":
+            combined_risk_rating = "AOI"
+        else:
+            combined_risk_rating = f"{sev_title}\\n[{sev_title}, {sev_title}]"
+            
+        hash_key = (vuln_name.lower().strip(), threat_desc.lower().strip())
+        
+        if hash_key not in groups_v:
+            groups_v[hash_key] = {
+                "locations": resolved_hosts,
+                "name": vuln_name,
+                "threat": threat_desc,
+                "rating": combined_risk_rating,
+                "fix": remediation
+            }
+        else:
+            for host in resolved_hosts:
+                if host not in groups_v[hash_key]["locations"]:
+                    groups_v[hash_key]["locations"].append(host)
+                    
+        if sev_key in global_ops_metrics:
+            global_ops_metrics[sev_key] += 1
+
+    for item in groups_v.values():
+        system_vulnerabilities_map[sys_name].append([
+            sys_name, 
+            "\\n".join(item["locations"]), 
+            "Refer to Annex F", 
+            item["name"], 
+            item["threat"], 
+            item["rating"], 
+            item["fix"], 
+            "" 
+        ])
+
+# Process Code Reviews
+for cf in list(JS_CODE_FILES):
+    sys_name = extract_system_name(cf)
+    if sys_name not in system_code_reviews_map:
+        system_code_reviews_map[sys_name] = []
+        
+    wb = load_workbook(cf, data_only=True)
+    for sheet_name in wb.sheetnames:
+        sheet = wb[sheet_name]
+        groups_c = {}
+        for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
+            if row_idx < 2 or len(row) <= 2 or row[2] is None: 
+                continue
+            obs_num = str(row[2]).strip().upper()
+            if not obs_num.startswith("C"):
+                continue
+                
+            raw_path = str(row[3]).strip() if row[3] is not None else "System Codebase"
+            vuln_name = str(row[8]).strip() if row[8] is not None else ""    
+            threat_desc = str(row[9]).strip() if row[9] is not None else ""  
+            remediation = str(row[10]).strip() if row[10] is not None else "" 
+            severity = str(row[11]).strip() if row[11] is not None else "Low" 
+            
+            sev_title = severity.strip().title()
+            if "aoi" in severity.lower(): sev_title = "AOI"
+            sev_key = "aoi" if sev_title == "AOI" else sev_title.lower()
+            
+            combined_risk_rating = sev_title if sev_title == "AOI" else f"{sev_title}\\n[{sev_title}, {sev_title}]"
+            hash_key = (vuln_name.lower().strip(), threat_desc.lower().strip())
+            
+            if hash_key not in groups_c:
+                groups_c[hash_key] = {
+                    "paths": [raw_path],
+                    "name": vuln_name,
+                    "threat": threat_desc,
+                    "rating": combined_risk_rating,
+                    "fix": remediation
+                }
+            else:
+                if raw_path not in groups_c[hash_key]["paths"]:
+                    groups_c[hash_key]["paths"].append(raw_path)
+                    
+            if sev_key in global_sam_metrics:
+                global_sam_metrics[sev_key] += 1
+                
+        for item in groups_c.values():
+            system_code_reviews_map[sys_name].append([
+                sys_name, 
+                "\\n".join(item["paths"]), 
+                item["name"], 
+                item["threat"], 
+                item["rating"], 
+                item["fix"]
+            ])
+
+conclusion_plan_string = generate_dynamic_count_string(global_ops_metrics)
+conclusion_code_string = generate_dynamic_count_string(global_sam_metrics)
+
+global_combined_metrics = {level: global_ops_metrics[level] + global_sam_metrics[level] for level in ["high", "medium", "low", "aoi"]}
+conclusion_overall_string = generate_dynamic_count_string(global_combined_metrics)
+
+replacements = [
+    ("*company name* Limited", company_name),
+    ("*company name*", company_name),
+    ("company name limited", company_name),
+    ("company name", company_name),
+    ("*testee name*", testee_name),
+    ("testee name", testee_name),
+    ("*TESTEE ABBREVIATION*", testee_abbr),
+    ("TESTEE ABBREVIATION", testee_abbr),
+    ("testee abbreviation", testee_abbr),
+    ("*COMPANY ABBREVIATION*", company_abbr),
+    ("COMPANY ABBREVIATION", company_abbr),
+    ("*number of risk items*", conclusion_overall_string),
+    ("*number of follow up plan items*", conclusion_plan_string),
+    ("*number of code review items*", conclusion_code_string)
+]
+
+doc = Document("batch_sra_template.docx")
+
+def synchronize_and_replace_dates(p, lookup_tuples):
+    if p.style.name.startswith("Heading"): return
+    full_text = "".join(run.text for run in p.runs)
+    if not full_text.strip(): return
+    modified = False
+    
+    if re.search(r'\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b', full_text):
+        full_text = re.sub(r'\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b', current_date_numeric, full_text)
+        modified = True
+    if re.search(r'\\b[A-Za-z]{3}\\s+\\d{4}\\s+to\\s+[A-Za-z]{3}\\s+\\d{4}\\b', full_text):
+        full_text = re.sub(r'\\b[A-Za-z]{3}\\s+\\d{4}\\s+to\\s+[A-Za-z]{3}\\s+\\d{4}\\b', current_date_text, full_text)
+        modified = True
+    if re.search(r'\\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{4}\\b', full_text, re.IGNORECASE):
+        full_text = re.sub(r'\\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{4}\\b', current_date_text, full_text, flags=re.IGNORECASE)
+        modified = True
+    if "late 2025" in full_text.lower():
+        full_text = full_text.replace("late 2025", current_date_text)
+        modified = True
+
+    for k, val in lookup_tuples:
+        if k.lower() in full_text.lower():
+            pattern = re.compile(re.escape(k), re.IGNORECASE)
+            full_text = pattern.sub(val, full_text)
+            modified = True
+            
+    if modified:
+        if p.runs:
+            p.runs[0].text = full_text
+            for r in p.runs[1:]: r.text = ""
+        else: p.text = full_text
+
+# Parse SRA 1.1 paragraph structures from WAB
+print("Extracting SRA 1.1 scope paragraphs...")
+sra_1_1_paragraphs = []
+found_sra_1_1 = False
+for p in list(wab_doc.paragraphs):
+    txt = p.text.strip()
+    if not txt: continue
+    if "sra" in txt.lower() and "services" in txt.lower() and "security risk assessment" in txt.lower():
+        found_sra_1_1 = True
+        continue
+    if found_sra_1_1 and "the scope of the services" in txt.lower():
+        found_sra_1_1 = False
+        break
+    if found_sra_1_1:
+        if txt.lower().startswith("to"):
+            sra_1_1_paragraphs.append(txt)
+
+# Parse Section 8 infrastructure paragraphs
+print("Extracting Section 8 infrastructure configurations...")
+environment_paragraphs = []
+found_env = False
+for p in list(wab_doc.paragraphs):
+    txt = p.text.strip()
+    if not txt: continue
+    if "current environment description" in txt.lower():
+        found_env = True
+        continue
+    if found_env and "project management requirements" in txt.lower():
+        found_env = False
+        break
+    if found_env:
+        environment_paragraphs.append(txt)
+
+# Paragraph replacement & Pointer verification routing
+for p_idx, p in enumerate(list(doc.paragraphs)):
+    lower_normalized = p.text.lower().replace(" ", "").replace(",", "").replace("*", "")
+    
+    if "copyfromsra1.1partaandb" in lower_normalized:
+        p.text = ""
+        current_anchor = p
+        if sra_1_1_paragraphs:
+            for line in sra_1_1_paragraphs:
+                current_anchor = insert_paragraph_after(current_anchor, line, style='Normal')
+        else:
+            p.text = "To evaluate security controls and verify compliance metrics."
+        continue
+
+    # Point B Pointer Executive Summary Resolution
+    if "systemnamescopiedfromsra1.1partb" in lower_normalized and (p_idx < 100):
+        p.text = ""
+        current_anchor = p
+        if detected_systems_list:
+            for idx, s_name in enumerate(detected_systems_list):
+                current_anchor = insert_paragraph_after(current_anchor, f"{idx + 1}.  {s_name}", style='Normal')
+        else:
+            p.text = "No system items found in scope."
+        continue
+
+    # Point B Pointer Environment Description Resolution
+    if "systemnamescopiedfromsra1.1partb" in lower_normalized and (p_idx >= 100):
+        p.text = ""
+        current_anchor = p
+        if detected_systems_list:
+            for idx, s_name in enumerate(detected_systems_list):
+                current_anchor = insert_paragraph_after(current_anchor, f"{idx + 1}.  {s_name}", style='Normal')
+        else:
+            p.text = "No system items found in scope."
+        continue
+
+    if "copyfromwabsection4.1.1" in lower_normalized:
+        p.text = ""
+        current_anchor = p
+        if environment_paragraphs:
+            for line in environment_paragraphs:
+                current_anchor = insert_paragraph_after(current_anchor, line, style='Normal')
+        else:
+            p.text = "Default Departmental Environment Settings."
+        continue
+
+    if "copyfromwabsection3.1" in lower_normalized:
+        p.text = ""
+        current_anchor = p
+        found_obj = False
+        captured_obj = []
+        for wp in wab_doc.paragraphs:
+            wtxt = wp.text.strip()
+            if "objectives of sraa services" in wtxt.lower() or "objectives of sraa" in wtxt.lower():
+                found_obj = True
+                continue
+            if found_obj and ("objectives of pia services" in wtxt.lower() or "privacy impact assessment" in wtxt.lower()):
+                found_obj = False
+                break
+            if found_obj and wtxt:
+                captured_obj.append(wtxt)
+        if captured_obj:
+            for line in captured_obj:
+                current_anchor = insert_paragraph_after(current_anchor, line, style='List Bullet')
+        else:
+            p.text = "To evaluate required security control metrics."
+        continue
+
+    if "copyfromwabsection4.1.3sectiona" in lower_normalized or "copyfromwabsection4.1.3,sectiona" in lower_normalized:
+        p.text = ""
+        current_anchor = p
+        found_sec = False
+        captured_sec = []
+        for wp in wab_doc.paragraphs:
+            wtxt = wp.text.strip()
+            if "together form the" in wtxt.lower() and "security baseline" in wtxt.lower():
+                found_sec = True
+                continue
+            if found_sec and "the scope of the assessment include" in wtxt.lower():
+                found_sec = False
+                break
+            if found_sec and wtxt:
+                captured_sec.append(wtxt)
+        if captured_sec:
+            for line in captured_sec:
+                current_anchor = insert_paragraph_after(current_anchor, line, style='List Bullet')
+        else:
+            p.text = "To refer to all government baseline policies."
+        continue
+
+    synchronize_and_replace_dates(p, replacements)
+
+# Process Tables
+for table in doc.tables:
+    if len(table.rows) == 0 or len(table.rows[0].cells) == 0: continue
+    first_row_text = "".join(cell.text.lower() for cell in table.rows[0].cells)
+    
+    if "it system/it infrastructure" in first_row_text:
+        for r_idx in range(len(table.rows) - 1, 0, -1):
+            table._tbl.remove(table.rows[r_idx]._tr)
+        for idx, s_name in enumerate(detected_systems_list):
+            new_row = table.add_row()
+            apply_text_styling_and_borders(new_row.cells[0], str(idx + 1), center=True)
+            apply_text_styling_and_borders(new_row.cells[1], str(s_name))
+            if len(new_row.cells) > 2:
+                apply_text_styling_and_borders(new_row.cells[2], "Tier 1" if "tier-2" not in s_name.lower() else "Tier 2")
+        continue
+
+    if "date of network & host levels" in first_row_text or "time frame" in first_row_text:
+        for r_idx in range(len(table.rows) - 1, 0, -1):
+            table._tbl.remove(table.rows[r_idx]._tr)
+        for idx, s_name in enumerate(detected_systems_list):
+            new_row = table.add_row()
+            apply_text_styling_and_borders(new_row.cells[0], str(idx + 1), center=True)
+            apply_text_styling_and_borders(new_row.cells[1], str(s_name))
+            for c_idx in range(2, len(new_row.cells)):
+                apply_text_styling_and_borders(new_row.cells[c_idx], "")
+        continue
+
+    if "affected it systems" in first_row_text and "asset value" in first_row_text:
+        for r_idx in range(len(table.rows) - 1, 0, -1):
+            table._tbl.remove(table.rows[r_idx]._tr)
+        for sys_name, findings in system_vulnerabilities_map.items():
+            for f in findings:
+                new_row = table.add_row()
+                apply_text_styling_and_borders(new_row.cells[0], f[0])
+                apply_text_styling_and_borders(new_row.cells[1], f[1])
+                apply_text_styling_and_borders(new_row.cells[2], f[2])
+                apply_text_styling_and_borders(new_row.cells[3], f[3])
+                apply_text_styling_and_borders(new_row.cells[4], f[4])
+                apply_text_styling_and_borders(new_row.cells[5], f[5], center=True)
+                apply_text_styling_and_borders(new_row.cells[6], f[6])
+                if len(new_row.cells) > 7:
+                    apply_text_styling_and_borders(new_row.cells[7], f[7])
+        continue
+
+    if "affected it systems" in first_row_text and "asset value" not in first_row_text and "vulnerability" in first_row_text:
+        for r_idx in range(len(table.rows) - 1, 0, -1):
+            table._tbl.remove(table.rows[r_idx]._tr)
+        for sys_name, findings in system_code_reviews_map.items():
+            for f in findings:
+                new_row = table.add_row()
+                apply_text_styling_and_borders(new_row.cells[0], f[0])
+                apply_text_styling_and_borders(new_row.cells[1], f[1])
+                apply_text_styling_and_borders(new_row.cells[2], f[2])
+                apply_text_styling_and_borders(new_row.cells[3], f[3])
+                apply_text_styling_and_borders(new_row.cells[4], f[4], center=True)
+                apply_text_styling_and_borders(new_row.cells[5], f[5])
+        continue
+
+    if "role" in first_row_text and "action" in first_row_text:
+        for row in table.rows:
+            f_text = row.cells[0].text.lower() if row.cells else ""
+            if "created by" in f_text and len(row.cells) >= 4:
+                apply_text_styling_and_borders(row.cells[1], company_name)
+                apply_text_styling_and_borders(row.cells[2], "Document Revision")
+                apply_text_styling_and_borders(row.cells[3], current_date_numeric)
+        continue
+
+    elif "summaryofchanges" in first_row_text:
+        for row in table.rows:
+            if len(row.cells) >= 4 and "version" not in row.cells[0].text.lower():
+                apply_text_styling_and_borders(row.cells[0], "0.1")
+                apply_text_styling_and_borders(row.cells[1], current_date_numeric)
+                apply_text_styling_and_borders(row.cells[2], company_name)
+                apply_text_styling_and_borders(row.cells[3], "Document Creation")
+                break
+        continue
+
+    is_summary_table = False
+    for row in table.rows:
+        r_text = "".join(c.text.lower() for c in row.cells)
+        if "operations security" in r_text or "system acquisition, development" in r_text:
+            is_summary_table = True
+            break
+            
+    if is_summary_table:
+        for r_idx, row in enumerate(table.rows):
+            f_cell_text = row.cells[0].text.lower() if row.cells else ""
+            is_last_row = (r_idx == len(table.rows) - 1)
+            
+            if is_last_row:
+                h_t = global_ops_metrics["high"] + global_sam_metrics["high"]
+                m_t = global_ops_metrics["medium"] + global_sam_metrics["medium"]
+                l_t = global_ops_metrics["low"] + global_sam_metrics["low"]
+                a_t = global_ops_metrics["aoi"] + global_sam_metrics["aoi"]
+                o_t = h_t + m_t + l_t + a_t
+                apply_text_styling_and_borders(row.cells[1], str(h_t), center=True)
+                apply_text_styling_and_borders(row.cells[2], str(m_t), center=True)
+                apply_text_styling_and_borders(row.cells[3], str(l_t), center=True)
+                apply_text_styling_and_borders(row.cells[4], str(a_t), center=True)
+                apply_text_styling_and_borders(row.cells[5], str(o_t), center=True)
+            elif "operations security" in f_cell_text:
+                metrics = [global_ops_metrics["high"], global_ops_metrics["medium"], global_ops_metrics["low"], global_ops_metrics["aoi"]]
+                total_row = sum(metrics)
+                apply_text_styling_and_borders(row.cells[1], str(metrics[0]), center=True)
+                apply_text_styling_and_borders(row.cells[2], str(metrics[1]), center=True)
+                apply_text_styling_and_borders(row.cells[3], str(metrics[2]), center=True)
+                apply_text_styling_and_borders(row.cells[4], str(metrics[3]), center=True)
+                apply_text_styling_and_borders(row.cells[5], str(total_row), center=True)
+            elif "system acquisition" in f_cell_text:
+                metrics = [global_sam_metrics["high"], global_sam_metrics["medium"], global_sam_metrics["low"], global_sam_metrics["aoi"]]
+                total_row = sum(metrics)
+                apply_text_styling_and_borders(row.cells[1], str(metrics[0]), center=True)
+                apply_text_styling_and_borders(row.cells[2], str(metrics[1]), center=True)
+                apply_text_styling_and_borders(row.cells[3], str(metrics[2]), center=True)
+                apply_text_styling_and_borders(row.cells[4], str(metrics[3]), center=True)
+                apply_text_styling_and_borders(row.cells[5], str(total_row), center=True)
+            elif any(domain in f_cell_text for domain in ["management", "policies", "human", "asset", "access", "cryptography", "physical", "communications", "outsourcing", "incident", "business", "compliance"]):
+                for idx in range(1, 6):
+                    apply_text_styling_and_borders(row.cells[idx], "0", center=True)
+        continue
+
+    for row in table.rows:
+        for cell in row.cells:
+            for cell_p in cell.paragraphs: 
+                synchronize_and_replace_dates(cell_p, replacements)
+
+for p in doc.paragraphs:
+    for run in p.runs:
+        if "*" in run.text: run.text = run.text.replace("*", "")
+for table in doc.tables:
+    for row in table.rows:
+        for cell in row.cells:
+            for cell_p in cell.paragraphs:
+                for run in cell_p.runs:
+                    if "*" in run.text: run.text = run.text.replace("*", "")
+
+doc.save("Batch_Generated_SRA_Report_Final.docx")
+print("SRA Task Completed.")
+`;
+
+            try {
+                await pyodideModule.runPythonAsync(pythonScript);
+                const outputBytes = pyodideModule.FS.readFile("Batch_Generated_SRA_Report_Final.docx");
+                const blob = new Blob([outputBytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `SRA_Batch_Report_${tAbbr}_Generated.docx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                logToConsole("Success: SRA Batch Report compiled!");
+            } catch (err) {
+                logToConsole("SRA Processing Fault: " + err.message);
+            }
+        }
+
+        // ==========================================
+        // PIPELINE 2: SECURITY AUDIT (SA) GENERATION
+        // ==========================================
+        async function executeSAPipeline() {
+            if (!pyodideModule) {
+                alert("Pyodide system parsing is compiling. Wait a brief moment.");
+                return;
+            }
+
+            const cName = document.getElementById("company_name").value;
+            const cAbbr = document.getElementById("company_abbr").value;
+            const tName = document.getElementById("testee_name").value;
+            const tAbbr = document.getElementById("testee_abbr").value;
+
+            const iWabList = await readMultipleFiles("file_wab");
+            if (iWabList.length === 0) {
+                logToConsole("Validation Failed: Compile aborted. WAB file required for SA Report Generation.");
+                alert("Please submit your WAB file to generate the Security Audit report.");
+                return;
+            }
+
+            const today = new Date();
+            const monthText = today.toLocaleDateString("en-US", { month: "long" }).toUpperCase();
+            const yearText = today.getFullYear();
+            const computedDateText = `${monthText} ${yearText}`;
+            
+            const dayNum = String(today.getDate()).padStart(2, '0');
+            const monthNum = String(today.getMonth() + 1).padStart(2, '0');
+            const computedDateNumeric = `${dayNum}-${monthNum}-${yearText}`;
+
+            logToConsole("Fetching base 'batch SA template.docx' file blueprint...");
+            try {
+                const response = await fetch("./batch%20SA%20template.docx");
+                if (!response.ok) throw new Error("Template access error 404. Check that 'batch SA template.docx' is tracked in root folder.");
+                const templateBuffer = await response.arrayBuffer();
+                const templateData = new Uint8Array(templateBuffer);
+                
+                try { pyodideModule.FS.unlink("batch_sa_template_base.docx"); } catch(e){}
+                pyodideModule.FS.writeFile("batch_sa_template_base.docx", templateData);
+            } catch (err) {
+                logToConsole("Fetch Error: " + err.message);
+                return;
+            }
+
+            const iWab = iWabList[0];
+            try { pyodideModule.FS.unlink(iWab.name); } catch(e) {}
+            pyodideModule.FS.writeFile(iWab.name, iWab.data);
+
+            pyodideModule.globals.set("JS_COMPANY_NAME", cName);
+            pyodideModule.globals.set("JS_COMPANY_ABBREVIATION", cAbbr);
+            pyodideModule.globals.set("JS_TESTEE_NAME", tName);
+            pyodideModule.globals.set("JS_TESTEE_ABBREVIATION", tAbbr);
+            pyodideModule.globals.set("JS_WAB_NAME", iWab.name);
+            pyodideModule.globals.set("JS_COMPUTED_DATE_TEXT", computedDateText);
+            pyodideModule.globals.set("JS_COMPUTED_DATE_NUMERIC", computedDateNumeric);
+
+            const pythonScript = `
+import os
+import sys
+import re
+
+class BrowserLogRedirect:
+    def write(self, s):
+        import js
+        js.logToConsole(str(s))
+    def flush(self): pass
+
+sys.stdout = BrowserLogRedirect()
+sys.stderr = BrowserLogRedirect()
+
+from docx import Document
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+
+company_name = JS_COMPANY_NAME
+company_abbr = JS_COMPANY_ABBREVIATION
+testee_name = JS_TESTEE_NAME
+testee_abbr = JS_TESTEE_ABBREVIATION
+current_date_text = JS_COMPUTED_DATE_TEXT
+current_date_numeric = JS_COMPUTED_DATE_NUMERIC
+
+def apply_text_styling_and_borders(cell, text, center=False):
+    cell.text = ""
+    p = cell.paragraphs[0]
+    if center:
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = p.add_run(text)
+    run.font.name = 'Times New Roman'
+    run.font.size = Pt(10)
+        
+    tcPr = cell._tc.get_or_add_tcPr()
+    tcBorders = OxmlElement('w:tcBorders')
+    for border_name in ['top', 'left', 'bottom', 'right']:
+        border = OxmlElement(f'w:{border_name}')
+        border.set(qn('w:val'), 'single')
+        border.set(qn('w:sz'), '4')
+        border.set(qn('w:space'), '0')
+        border.set(qn('w:color'), 'auto')
+        tcBorders.append(border)
+    tcPr.append(tcBorders)
+
+def insert_paragraph_after(paragraph, text, style=None):
+    doc_instance = paragraph.part.document
+    new_p = doc_instance.add_paragraph(style=style)
+    new_p.text = text
+    p_element = paragraph._p
+    p_element.addnext(new_p._p)
+    return new_p
+
+print("Parsing WAB file...")
+wab_doc = Document(JS_WAB_NAME)
+
+detected_systems_list = []
+found_major_systems = False
+
+for p in list(wab_doc.paragraphs):
+    txt = p.text.strip()
+    if not txt: continue
+    
+    if "the tentative major information systems" in txt.lower():
+        found_major_systems = True
+        continue
+    if found_major_systems and "a security audit" in txt.lower():
+        found_major_systems = False
+        break
+        
+    if found_major_systems:
+        cleaned_sys = txt.strip()
+        if cleaned_sys and cleaned_sys not in detected_systems_list:
+            detected_systems_list.append(cleaned_sys)
+
+print(f"Total systems extracted from WAB: {len(detected_systems_list)}")
+
+replacements = [
+    ("*company name* Limited", company_name),
+    ("*company name*", company_name),
+    ("company name limited", company_name),
+    ("company name", company_name),
+    ("*testee name*", testee_name),
+    ("testee name", testee_name),
+    ("*TESTEE ABBREVIATION*", testee_abbr),
+    ("TESTEE ABBREVIATION", testee_abbr),
+    ("testee abbreviation", testee_abbr),
+    ("*COMPANY ABBREVIATION*", company_abbr),
+    ("COMPANY ABBREVIATION", company_abbr)
+]
+
+doc = Document("batch_sa_template_base.docx")
+
+def synchronize_and_replace_dates(p, lookup_tuples):
+    if p.style.name.startswith("Heading"): return
+    full_text = "".join(run.text for run in p.runs)
+    if not full_text.strip(): return
+    modified = False
+    
+    if re.search(r'\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b', full_text):
+        full_text = re.sub(r'\\b\\d{2}[-/]\\d{2}[-/]\\d{4}\\b', current_date_numeric, full_text)
+        modified = True
+    if re.search(r'\\b[A-Za-z]{3}\\s+\\d{4}\\s+to\\s+[A-Za-z]{3}\\s+\\d{4}\\b', full_text):
+        full_text = re.sub(r'\\b[A-Za-z]{3}\\s+\\d{4}\\s+to\\s+[A-Za-z]{3}\\s+\\d{4}\\b', current_date_text, full_text)
+        modified = True
+    if re.search(r'\\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{4}\\b', full_text, re.IGNORECASE):
+        full_text = re.sub(r'\\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+\\d{4}\\b', current_date_text, full_text, flags=re.IGNORECASE)
+        modified = True
+    if "late 2025" in full_text.lower():
+        full_text = full_text.replace("late 2025", current_date_text)
+        modified = True
+
+    for k, val in lookup_tuples:
+        if k.lower() in full_text.lower():
+            pattern = re.compile(re.escape(k), re.IGNORECASE)
+            full_text = pattern.sub(val, full_text)
+            modified = True
+            
+    if modified:
+        if p.runs:
+            p.runs[0].text = full_text
+            for r in p.runs[1:]: r.text = ""
+        else: p.text = full_text
+
+# 1. Parse Section 8 Infrastructure Paragraphs
+environment_paragraphs = []
+found_env = False
+for p in list(wab_doc.paragraphs):
+    txt = p.text.strip()
+    if not txt: continue
+    if "current environment description" in txt.lower():
+        found_env = True
+        continue
+    if found_env and "project management requirements" in txt.lower():
+        found_env = False
+        break
+    if found_env:
+        environment_paragraphs.append(txt)
+
+# 2. Parse WAB Objectives Section 3.1 
+captured_obj = []
+found_obj = False
+for wp in wab_doc.paragraphs:
+    wtxt = wp.text.strip()
+    if "objectives of sraa services" in wtxt.lower() or "objectives of sraa" in wtxt.lower():
+        found_obj = True
+        continue
+    if found_obj and ("objectives of pia services" in wtxt.lower() or "privacy impact assessment" in wtxt.lower()):
+        found_obj = False
+        break
+    if found_obj and wtxt:
+        captured_obj.append(wtxt)
+
+# 3. Parse Section 9 Baseline Security Requirements
+captured_sec = []
+found_sec = False
+for wp in wab_doc.paragraphs:
+    wtxt = wp.text.strip()
+    if "together form the" in wtxt.lower() and "security baseline" in wtxt.lower():
+        found_sec = True
+        continue
+    if found_sec and "the scope of the assessment include" in wtxt.lower():
+        found_sec = False
+        break
+    if found_sec and wtxt:
+        captured_sec.append(wtxt)
+
+# 4. Parse Annex E - Major System Description (Bounded precisely)
+print("Extracting WAB Annex B Major System Description dynamically...")
+captured_annex_b = []
+found_annex_b = False
+for wp in wab_doc.paragraphs:
+    wtxt = wp.text.strip()
+    # Match Start boundary (case-insensitive)
+    if "major system description" in wtxt.lower() and "annex" in wtxt.lower():
+        found_annex_b = True
+        continue
+    # Match the boundary of the next section
+    if found_annex_b and ("list of csb" in wtxt.lower() or "annex 1" in wtxt.lower() or "section c" in wtxt.lower() or wp.style.name.startswith("Heading")):
+        found_annex_b = False
+        break
+    if found_annex_b:
+        captured_annex_b.append(wtxt)
+
+# Apply paragraph transformations
+for p_idx, p in enumerate(list(doc.paragraphs)):
+    lower_normalized = p.text.lower().replace(" ", "").replace(",", "").replace("*", "")
+    
+    # Replace Executive Summary / System List Placeholders
+    if "systemnamescopiedfromwab1.1partb" in lower_normalized and (p_idx < 150):
+        p.text = ""
+        current_anchor = p
+        if detected_systems_list:
+            for idx, s_name in enumerate(detected_systems_list):
+                current_anchor = insert_paragraph_after(current_anchor, f"{idx + 1}.  {s_name}", style='Normal')
+        else:
+            p.text = "No systems found."
+        continue
+
+    # Replace Section 8 Environmental System List Pointer
+    if "systemnamescopiedfromwab1.1partb" in lower_normalized and (p_idx >= 150):
+        p.text = ""
+        current_anchor = p
+        if detected_systems_list:
+            for idx, s_name in enumerate(detected_systems_list):
+                current_anchor = insert_paragraph_after(current_anchor, f"{idx + 1}.  {s_name}", style='Normal')
+        else:
+            p.text = "No systems found."
+        continue
+
+    # Section 8 Current Environment Description
+    if "copyfromwabsection4.1.1" in lower_normalized:
+        p.text = ""
+        current_anchor = p
+        if environment_paragraphs:
+            for line in environment_paragraphs:
+                current_anchor = insert_paragraph_after(current_anchor, line, style='Normal')
+        else:
+            p.text = "Default Departmental Environment Settings."
+        continue
+
+    # Section 4 Objectives
+    if "copyfromwabsection3.1" in lower_normalized:
+        p.text = ""
+        current_anchor = p
+        if captured_obj:
+            for line in captured_obj:
+                current_anchor = insert_paragraph_after(current_anchor, line, style='List Bullet')
+        else:
+            p.text = "Evaluate baseline security parameters."
+        continue
+
+    # Section 9 Baseline Policies
+    if "copyfromwabsection4.1.3sectiona" in lower_normalized or "copyfromwabsection4.1.3,sectiona" in lower_normalized:
+        p.text = ""
+        current_anchor = p
+        if captured_sec:
+            for line in captured_sec:
+                current_anchor = insert_paragraph_after(current_anchor, line, style='List Bullet')
+        else:
+            p.text = "Baseline government guidelines applied."
+        continue
+
+    # Annex E Major System Description Insertion (Precise dynamic boundaries)
+    if "copyfromwabannexbmajorsystemdescription" in lower_normalized:
+        p.text = ""
+        current_anchor = p
+        if captured_annex_b:
+            for line in captured_annex_b:
+                current_anchor = insert_paragraph_after(current_anchor, line, style='Normal')
+        else:
+            p.text = "System details provided under baseline specifications."
+        continue
+
+    synchronize_and_replace_dates(p, replacements)
+
+# Process Tables inside SA
+for table in doc.tables:
+    if len(table.rows) == 0 or len(table.rows[0].cells) == 0: continue
+    first_row_text = "".join(cell.text.lower() for cell in table.rows[0].cells)
+
+    # Rebuild Time Frame/Audit Table rows
+    if "kick off meeting" in "".join(row.cells[0].text.lower() for row in table.rows if row.cells):
+        continue # Retain existing audit timelines
+
+    # General revision table metadata synchronization
+    if "role" in first_row_text and "action" in first_row_text:
+        for row in table.rows:
+            f_text = row.cells[0].text.lower() if row.cells else ""
+            if "created by" in f_text and len(row.cells) >= 4:
+                apply_text_styling_and_borders(row.cells[1], company_name)
+                apply_text_styling_and_borders(row.cells[2], "Document Revision")
+                apply_text_styling_and_borders(row.cells[3], current_date_numeric)
+        continue
+
+    elif "summaryofchanges" in first_row_text:
+        for row in table.rows:
+            if len(row.cells) >= 4 and "version" not in row.cells[0].text.lower():
+                apply_text_styling_and_borders(row.cells[0], "0.3")
+                apply_text_styling_and_borders(row.cells[1], current_date_numeric)
+                apply_text_styling_and_borders(row.cells[2], company_name)
+                apply_text_styling_and_borders(row.cells[3], "Document Creation")
+                break
+        continue
+
+    for row in table.rows:
+        for cell in row.cells:
+            for cell_p in cell.paragraphs: 
+                synchronize_and_replace_dates(cell_p, replacements)
+
+# Clean up all asterisks
+for p in doc.paragraphs:
+    for run in p.runs:
+        if "*" in run.text: run.text = run.text.replace("*", "")
+for table in doc.tables:
+    for row in table.rows:
+        for cell in row.cells:
+            for cell_p in cell.paragraphs:
+                for run in cell_p.runs:
+                    if "*" in run.text: run.text = run.text.replace("*", "")
+
+doc.save("Batch_Generated_SA_Report_Final.docx")
+print("SA Compilation Complete.")
+`;
+
+            try {
+                await pyodideModule.runPythonAsync(pythonScript);
+                const outputBytes = pyodideModule.FS.readFile("Batch_Generated_SA_Report_Final.docx");
+                const blob = new Blob([outputBytes], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `SA_Batch_Report_${tAbbr}_Generated.docx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                logToConsole("Success: SA Batch Report compiled!");
+            } catch (err) {
+                logToConsole("SA Processing Fault: " + err.message);
+            }
+        }
+    </script>
+</body>
+</html>
