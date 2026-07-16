@@ -56,7 +56,7 @@
             <!-- DATA SOURCE FILE UPLOADS -->
             <section class="bg-slate-800 rounded-lg p-6 border border-slate-700 shadow-xl space-y-4">
                 <h2 class="text-xl font-bold text-white mb-2" id="document_panel_title">Mandatory SRA Document Batch Collection</h2>
-                <p class="text-xs text-slate-400 mb-4" id="template_notif_hint">Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">batch SRA template_3.docx</code>.</p>
+                <p class="text-xs text-slate-400 mb-4" id="template_notif_hint">Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">batch SRA template.docx</code>.</p>
                 
                 <div class="space-y-4">
                     <div class="p-4 bg-slate-950 border border-dashed border-blue-500/50 rounded-lg">
@@ -141,7 +141,7 @@
                 planGroup.classList.remove('hidden');
                 codeGroup.classList.remove('hidden');
                 title.innerText = "Mandatory SRA Document Batch Collection";
-                hint.innerHTML = 'Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">batch SRA template_3.docx</code>.';
+                hint.innerHTML = 'Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">batch SRA template.docx</code>.';
             } else {
                 tabSa.className = "px-4 py-2 text-sm font-medium border-b-2 border-blue-500 text-blue-400";
                 tabSra.className = "px-4 py-2 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-300";
@@ -213,10 +213,10 @@
             const monthNum = String(today.getMonth() + 1).padStart(2, '0');
             const computedDateNumeric = `${dayNum}-${monthNum}-${yearText}`;
 
-            logToConsole("Fetching base 'batch SRA template_3.docx' file blueprint...");
+            logToConsole("Fetching base 'batch SRA template.docx' file blueprint...");
             try {
-                const response = await fetch("./batch%20SRA%20template_3.docx");
-                if (!response.ok) throw new Error("Template access error 404. Check that 'batch SRA template_3.docx' is tracked in root folder.");
+                const response = await fetch("./batch%20SRA%20template.docx");
+                if (!response.ok) throw new Error("Template access error 404. Check that 'batch SRA template.docx' is tracked in root folder.");
                 const templateBuffer = await response.arrayBuffer();
                 const templateData = new Uint8Array(templateBuffer);
                 
