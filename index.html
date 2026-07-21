@@ -365,10 +365,19 @@ for pf in list(JS_PLAN_FILES):
     for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
         if row_idx < 2 or len(row) <= 2 or row[2] is None: continue
         obs_num = str(row[2]).strip().upper()
+        
+        # Condition updated: Lines starting with "V" are Network/Host Scans, lines starting with "A" are ZAP Penetration Tests[cite: 5, 8]
         if not (obs_num.startswith("V") or obs_num.startswith("A")): continue
+        
         raw_ip = str(row[3]).strip() if row[3] is not None else ""
         raw_port = str(row[4]).strip() if (len(row) > 4 and row[4] is not None) else ""
-        resolved_hosts = [f"{ip.strip()}:{raw_port}" if raw_port and ":" not in ip else ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [testee_abbr]
+        
+        # Dedicated handling for ZAP penetration test lines ("A") where IP/Port might be omitted or represent web endpoints[cite: 5, 8]
+        if obs_num.startswith("A"):
+            resolved_hosts = [ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [sys_name]
+        else:
+            resolved_hosts = [f"{ip.strip()}:{raw_port}" if raw_port and ":" not in ip else ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [testee_abbr]
+            
         vuln_name = str(row[8]).strip() if row[8] is not None else ""
         threat_desc = str(row[9]).strip() if row[9] is not None else ""
         remediation = str(row[10]).strip() if row[10] is not None else ""
@@ -998,7 +1007,6 @@ def extract_system_name(filename):
             clean_name = re.sub(re.escape(split_word), "", clean_name, flags=re.IGNORECASE)
     return clean_name.replace("-", "").replace("_", "").strip()
 
-# Verification Metric Maps[cite: 8]
 ops_metrics = {"mitigated": 0, "in_progress": 0, "accepted": 0}
 sam_metrics = {"mitigated": 0, "in_progress": 0, "accepted": 0}
 
@@ -1034,7 +1042,6 @@ for p in list(wab_doc.paragraphs):
         detected_systems_list.append(txt)
 
 def parse_verification_status(row_cells):
-    # Search row data for mitigation status (usually columns L or M, checking cells for Mitigated, In Progress, Accepted)
     for cell in row_cells:
         if cell is None: continue
         val_lower = str(cell).lower().strip()
@@ -1044,7 +1051,7 @@ def parse_verification_status(row_cells):
             return "in_progress"
         if "accepted" in val_lower or "acknowledged" in val_lower:
             return "accepted"
-    return "in_progress" # Default to dynamic fallback
+    return "in_progress"
 
 def parse_target_date(row_cells):
     for cell in row_cells:
@@ -1066,11 +1073,19 @@ for pf in list(JS_PLAN_FILES):
     for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
         if row_idx < 2 or len(row) <= 2 or row[2] is None: continue
         obs_num = str(row[2]).strip().upper()
+        
+        # Condition updated: Lines starting with "V" are Network/Host Scans, lines starting with "A" are ZAP Penetration Tests[cite: 5, 8]
         if not (obs_num.startswith("V") or obs_num.startswith("A")): continue
         
         raw_ip = str(row[3]).strip() if row[3] is not None else ""
         raw_port = str(row[4]).strip() if (len(row) > 4 and row[4] is not None) else ""
-        resolved_hosts = [f"{ip.strip()}:{raw_port}" if raw_port and ":" not in ip else ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [testee_abbr]
+        
+        # Dedicated handling for ZAP penetration test lines ("A")[cite: 5, 8]
+        if obs_num.startswith("A"):
+            resolved_hosts = [ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [sys_name]
+        else:
+            resolved_hosts = [f"{ip.strip()}:{raw_port}" if raw_port and ":" not in ip else ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [testee_abbr]
+            
         vuln_name = str(row[8]).strip() if row[8] is not None else ""
         threat_desc = str(row[9]).strip() if row[9] is not None else ""
         remediation = str(row[10]).strip() if row[10] is not None else ""
@@ -1228,7 +1243,6 @@ for table in doc.tables:
 
     # Results Table breakdown (Vulnerabilities and Code Review matrixes)[cite: 8]
     if "vulnerability assessment and penetration test" in first_row_text:
-        # Col mapping: Title | Total | High | Medium | Low | AOI
         for r_idx, row in enumerate(table.rows):
             r_label = row.cells[0].text.lower()
             if "completed" in r_label:
