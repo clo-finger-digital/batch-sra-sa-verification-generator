@@ -324,6 +324,45 @@ def extract_system_name(filename):
             clean_name = re.sub(re.escape(split_word), "", clean_name, flags=re.IGNORECASE)
     return clean_name.replace("-", "").replace("_", "").strip()
 
+def find_column_mapping(sheet):
+    """
+    Scans rows in a sheet to dynamically discover the header row and map target column names[cite: 11].
+    """
+    target_keys = {
+        "obs_num": ["obs", "no", "item", "id", "ref"],
+        "ip": ["ip", "host", "asset", "url", "target"],
+        "port": ["port"],
+        "vuln": ["vulnerability", "finding", "vulnerabilities", "title", "issue", "name"],
+        "threat": ["threat", "description"],
+        "remediation": ["recommendation", "remediation", "safeguard", "action"],
+        "severity": ["severity", "risk", "level", "rating"]
+    }
+    col_map = {}
+    header_row_idx = None
+    
+    for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
+        if row_idx > 25: break  # limit scanning depth
+        row_cells_lower = [str(c).strip().lower() if c is not None else "" for c in row]
+        matches = 0
+        temp_map = {}
+        for c_idx, text in enumerate(row_cells_lower):
+            if not text: continue
+            for key, patterns in target_keys.items():
+                if key not in temp_map and any(p in text for p in patterns):
+                    temp_map[key] = c_idx
+                    matches += 1
+        if matches >= 3:
+            header_row_idx = row_idx
+            col_map = temp_map
+            break
+
+    # Default fallback mapping if header wasn't unambiguously detected
+    if header_row_idx is None:
+        header_row_idx = 1
+        col_map = {"obs_num": 2, "ip": 3, "port": 4, "vuln": 8, "threat": 9, "remediation": 10, "severity": 11}
+        
+    return header_row_idx, col_map
+
 global_ops_metrics = {"high": 0, "medium": 0, "low": 0, "aoi": 0}
 global_sam_metrics = {"high": 0, "medium": 0, "low": 0, "aoi": 0}
 system_vulnerabilities_map = {}
@@ -354,66 +393,92 @@ def generate_dynamic_count_string(metrics_dict):
             parts.append(f"{cnt} {'AOI' if level == 'aoi' else level}")
     return " and ".join(parts) if parts else "0 risk items"
 
-# SRA spreadsheet processing[cite: 5, 6]
+# Dynamic Spreadsheet Processing across ALL tabs[cite: 11]
 for pf in list(JS_PLAN_FILES):
     sys_name = extract_system_name(pf)
     if sys_name not in system_vulnerabilities_map:
         system_vulnerabilities_map[sys_name] = []
     wb = load_workbook(pf, data_only=True)
-    sheet = wb.active
-    groups_v = {}
-    for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
-        if row_idx < 2 or len(row) <= 2 or row[2] is None: continue
-        obs_num = str(row[2]).strip().upper()
+    
+    for s_name in wb.sheetnames:
+        sheet = wb[s_name]
+        header_row_idx, col_map = find_column_mapping(sheet)
+        groups_v = {}
         
-        # Condition updated: Lines starting with "V" are Network/Host Scans, lines starting with "A" are ZAP Penetration Tests[cite: 5, 8]
-        if not (obs_num.startswith("V") or obs_num.startswith("A")): continue
-        
-        raw_ip = str(row[3]).strip() if row[3] is not None else ""
-        raw_port = str(row[4]).strip() if (len(row) > 4 and row[4] is not None) else ""
-        
-        # Dedicated handling for ZAP penetration test lines ("A") where IP/Port might be omitted or represent web endpoints[cite: 5, 8]
-        if obs_num.startswith("A"):
-            resolved_hosts = [ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [sys_name]
-        else:
-            resolved_hosts = [f"{ip.strip()}:{raw_port}" if raw_port and ":" not in ip else ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [testee_abbr]
+        for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
+            if row_idx <= header_row_idx: continue
             
-        vuln_name = str(row[8]).strip() if row[8] is not None else ""
-        threat_desc = str(row[9]).strip() if row[9] is not None else ""
-        remediation = str(row[10]).strip() if row[10] is not None else ""
-        severity = str(row[11]).strip() if row[11] is not None else "Low"
-        
-        sev_title = "AOI" if "aoi" in severity.lower() else severity.strip().title()
-        sev_key = sev_title.lower()
-        combined_risk_rating = "AOI" if sev_title == "AOI" else f"{sev_title}\\n[{sev_title}, {sev_title}]"
-        
-        hash_key = (vuln_name.lower().strip(), threat_desc.lower().strip())
-        if hash_key not in groups_v:
-            groups_v[hash_key] = {"locations": resolved_hosts, "name": vuln_name, "threat": threat_desc, "rating": combined_risk_rating, "fix": remediation}
-        else:
-            for host in resolved_hosts:
-                if host not in groups_v[hash_key]["locations"]: groups_v[hash_key]["locations"].append(host)
-        if sev_key in global_ops_metrics: global_ops_metrics[sev_key] += 1
+            obs_idx = col_map.get("obs_num", 2)
+            if len(row) <= obs_idx or row[obs_idx] is None: continue
+            obs_num = str(row[obs_idx]).strip().upper()
+            
+            if not (obs_num.startswith("V") or obs_num.startswith("A")): continue
+            
+            ip_idx = col_map.get("ip", 3)
+            port_idx = col_map.get("port", 4)
+            raw_ip = str(row[ip_idx]).strip() if (len(row) > ip_idx and row[ip_idx] is not None) else ""
+            raw_port = str(row[port_idx]).strip() if (len(row) > port_idx and row[port_idx] is not None) else ""
+            
+            if obs_num.startswith("A"):
+                resolved_hosts = [ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [sys_name]
+            else:
+                resolved_hosts = [f"{ip.strip()}:{raw_port}" if raw_port and ":" not in ip else ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [testee_abbr]
+                
+            v_idx = col_map.get("vuln", 8)
+            t_idx = col_map.get("threat", 9)
+            r_idx = col_map.get("remediation", 10)
+            s_idx = col_map.get("severity", 11)
 
-    for item in groups_v.values():
-        system_vulnerabilities_map[sys_name].append([sys_name, "\\n".join(item["locations"]), "Refer to Annex F", item["name"], item["threat"], item["rating"], item["fix"], ""])
+            vuln_name = str(row[v_idx]).strip() if (len(row) > v_idx and row[v_idx] is not None) else ""
+            threat_desc = str(row[t_idx]).strip() if (len(row) > t_idx and row[t_idx] is not None) else ""
+            remediation = str(row[r_idx]).strip() if (len(row) > r_idx and row[r_idx] is not None) else ""
+            severity = str(row[s_idx]).strip() if (len(row) > s_idx and row[s_idx] is not None) else "Low"
+            
+            sev_title = "AOI" if "aoi" in severity.lower() else severity.strip().title()
+            sev_key = sev_title.lower()
+            combined_risk_rating = "AOI" if sev_title == "AOI" else f"{sev_title}\\n[{sev_title}, {sev_title}]"
+            
+            hash_key = (vuln_name.lower().strip(), threat_desc.lower().strip())
+            if hash_key not in groups_v:
+                groups_v[hash_key] = {"locations": resolved_hosts, "name": vuln_name, "threat": threat_desc, "rating": combined_risk_rating, "fix": remediation}
+            else:
+                for host in resolved_hosts:
+                    if host not in groups_v[hash_key]["locations"]: groups_v[hash_key]["locations"].append(host)
+            if sev_key in global_ops_metrics: global_ops_metrics[sev_key] += 1
+
+        for item in groups_v.values():
+            system_vulnerabilities_map[sys_name].append([sys_name, "\\n".join(item["locations"]), "Refer to Annex F", item["name"], item["threat"], item["rating"], item["fix"], ""])
 
 for cf in list(JS_CODE_FILES):
     sys_name = extract_system_name(cf)
     if sys_name not in system_code_reviews_map:
         system_code_reviews_map[sys_name] = []
     wb = load_workbook(cf, data_only=True)
+    
     for s_name in wb.sheetnames:
         sheet = wb[s_name]
+        header_row_idx, col_map = find_column_mapping(sheet)
         groups_c = {}
+        
         for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
-            if row_idx < 2 or len(row) <= 2 or row[2] is None: continue
-            if not str(row[2]).strip().upper().startswith("C"): continue
-            raw_path = str(row[3]).strip() if row[3] is not None else "System Codebase"
-            vuln_name = str(row[8]).strip() if row[8] is not None else ""
-            threat_desc = str(row[9]).strip() if row[9] is not None else ""
-            remediation = str(row[10]).strip() if row[10] is not None else ""
-            severity = str(row[11]).strip() if row[11] is not None else "Low"
+            if row_idx <= header_row_idx: continue
+            
+            obs_idx = col_map.get("obs_num", 2)
+            if len(row) <= obs_idx or row[obs_idx] is None: continue
+            if not str(row[obs_idx]).strip().upper().startswith("C"): continue
+            
+            ip_idx = col_map.get("ip", 3)
+            raw_path = str(row[ip_idx]).strip() if (len(row) > ip_idx and row[ip_idx] is not None) else "System Codebase"
+            
+            v_idx = col_map.get("vuln", 8)
+            t_idx = col_map.get("threat", 9)
+            r_idx = col_map.get("remediation", 10)
+            s_idx = col_map.get("severity", 11)
+
+            vuln_name = str(row[v_idx]).strip() if (len(row) > v_idx and row[v_idx] is not None) else ""
+            threat_desc = str(row[t_idx]).strip() if (len(row) > t_idx and row[t_idx] is not None) else ""
+            remediation = str(row[r_idx]).strip() if (len(row) > r_idx and row[r_idx] is not None) else ""
+            severity = str(row[s_idx]).strip() if (len(row) > s_idx and row[s_idx] is not None) else "Low"
             
             sev_title = "AOI" if "aoi" in severity.lower() else severity.strip().title()
             sev_key = sev_title.lower()
@@ -1007,6 +1072,46 @@ def extract_system_name(filename):
             clean_name = re.sub(re.escape(split_word), "", clean_name, flags=re.IGNORECASE)
     return clean_name.replace("-", "").replace("_", "").strip()
 
+def find_column_mapping(sheet):
+    """
+    Scans rows in a sheet to dynamically discover the header row and map target column names[cite: 11].
+    """
+    target_keys = {
+        "obs_num": ["obs", "no", "item", "id", "ref"],
+        "ip": ["ip", "host", "asset", "url", "target"],
+        "port": ["port"],
+        "vuln": ["vulnerability", "finding", "vulnerabilities", "title", "issue", "name"],
+        "threat": ["threat", "description"],
+        "remediation": ["recommendation", "remediation", "safeguard", "action"],
+        "severity": ["severity", "risk", "level", "rating"],
+        "status": ["status", "state", "progress", "verification"],
+        "date": ["date", "target", "completion"]
+    }
+    col_map = {}
+    header_row_idx = None
+    
+    for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
+        if row_idx > 25: break
+        row_cells_lower = [str(c).strip().lower() if c is not None else "" for c in row]
+        matches = 0
+        temp_map = {}
+        for c_idx, text in enumerate(row_cells_lower):
+            if not text: continue
+            for key, patterns in target_keys.items():
+                if key not in temp_map and any(p in text for p in patterns):
+                    temp_map[key] = c_idx
+                    matches += 1
+        if matches >= 3:
+            header_row_idx = row_idx
+            col_map = temp_map
+            break
+
+    if header_row_idx is None:
+        header_row_idx = 1
+        col_map = {"obs_num": 2, "ip": 3, "port": 4, "vuln": 8, "threat": 9, "remediation": 10, "severity": 11, "status": 12, "date": 13}
+        
+    return header_row_idx, col_map
+
 ops_metrics = {"mitigated": 0, "in_progress": 0, "accepted": 0}
 sam_metrics = {"mitigated": 0, "in_progress": 0, "accepted": 0}
 
@@ -1060,63 +1165,77 @@ def parse_target_date(row_cells):
             return str(cell).strip()
     return "N/A"
 
-# Process SRA Follow-Up Plans[cite: 8]
+# Process SRA Follow-Up Plans across ALL tabs[cite: 8, 11]
 for pf in list(JS_PLAN_FILES):
     sys_name = extract_system_name(pf)
     if sys_name not in system_vulnerabilities_map:
         system_vulnerabilities_map[sys_name] = []
         
     wb = load_workbook(pf, data_only=True)
-    sheet = wb.active
-    groups_v = {}
     
-    for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
-        if row_idx < 2 or len(row) <= 2 or row[2] is None: continue
-        obs_num = str(row[2]).strip().upper()
+    for s_name in wb.sheetnames:
+        sheet = wb[s_name]
+        header_row_idx, col_map = find_column_mapping(sheet)
+        groups_v = {}
         
-        # Condition updated: Lines starting with "V" are Network/Host Scans, lines starting with "A" are ZAP Penetration Tests[cite: 5, 8]
-        if not (obs_num.startswith("V") or obs_num.startswith("A")): continue
-        
-        raw_ip = str(row[3]).strip() if row[3] is not None else ""
-        raw_port = str(row[4]).strip() if (len(row) > 4 and row[4] is not None) else ""
-        
-        # Dedicated handling for ZAP penetration test lines ("A")[cite: 5, 8]
-        if obs_num.startswith("A"):
-            resolved_hosts = [ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [sys_name]
-        else:
-            resolved_hosts = [f"{ip.strip()}:{raw_port}" if raw_port and ":" not in ip else ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [testee_abbr]
+        for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
+            if row_idx <= header_row_idx: continue
             
-        vuln_name = str(row[8]).strip() if row[8] is not None else ""
-        threat_desc = str(row[9]).strip() if row[9] is not None else ""
-        remediation = str(row[10]).strip() if row[10] is not None else ""
-        severity = str(row[11]).strip() if row[11] is not None else "Low"
-        
-        sev_title = "AOI" if "aoi" in severity.lower() else severity.strip().title()
-        sev_key = sev_title.lower()
-        combined_risk_rating = "AOI" if sev_title == "AOI" else f"{sev_title}\\n[{sev_title}, {sev_title}]"
-        
-        status = parse_verification_status(row[11:])
-        t_date = parse_target_date(row[11:])
-        
-        ops_metrics[status] += 1
-        vuln_sev_breakdown[status][sev_key] += 1
-        
-        hash_key = (vuln_name.lower().strip(), threat_desc.lower().strip())
-        if hash_key not in groups_v:
-            groups_v[hash_key] = {
-                "locations": resolved_hosts, "name": vuln_name, "threat": threat_desc, 
-                "rating": combined_risk_rating, "fix": remediation, "status": status.title().replace("_", " "), "date": t_date
-            }
-        else:
-            for host in resolved_hosts:
-                if host not in groups_v[hash_key]["locations"]: groups_v[hash_key]["locations"].append(host)
+            obs_idx = col_map.get("obs_num", 2)
+            if len(row) <= obs_idx or row[obs_idx] is None: continue
+            obs_num = str(row[obs_idx]).strip().upper()
+            
+            if not (obs_num.startswith("V") or obs_num.startswith("A")): continue
+            
+            ip_idx = col_map.get("ip", 3)
+            port_idx = col_map.get("port", 4)
+            raw_ip = str(row[ip_idx]).strip() if (len(row) > ip_idx and row[ip_idx] is not None) else ""
+            raw_port = str(row[port_idx]).strip() if (len(row) > port_idx and row[port_idx] is not None) else ""
+            
+            if obs_num.startswith("A"):
+                resolved_hosts = [ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [sys_name]
+            else:
+                resolved_hosts = [f"{ip.strip()}:{raw_port}" if raw_port and ":" not in ip else ip.strip() for ip in raw_ip.split('\\n') if ip.strip()] or [testee_abbr]
+                
+            v_idx = col_map.get("vuln", 8)
+            t_idx = col_map.get("threat", 9)
+            r_idx = col_map.get("remediation", 10)
+            s_idx = col_map.get("severity", 11)
 
-    for item in groups_v.values():
-        system_vulnerabilities_map[sys_name].append([
-            sys_name, "\\n".join(item["locations"]), item["name"], item["threat"], item["rating"], item["fix"], item["status"], item["date"]
-        ])
+            vuln_name = str(row[v_idx]).strip() if (len(row) > v_idx and row[v_idx] is not None) else ""
+            threat_desc = str(row[t_idx]).strip() if (len(row) > t_idx and row[t_idx] is not None) else ""
+            remediation = str(row[r_idx]).strip() if (len(row) > r_idx and row[r_idx] is not None) else ""
+            severity = str(row[s_idx]).strip() if (len(row) > s_idx and row[s_idx] is not None) else "Low"
+            
+            sev_title = "AOI" if "aoi" in severity.lower() else severity.strip().title()
+            sev_key = sev_title.lower()
+            combined_risk_rating = "AOI" if sev_title == "AOI" else f"{sev_title}\\n[{sev_title}, {sev_title}]"
+            
+            status_idx = col_map.get("status", 12)
+            date_idx = col_map.get("date", 13)
+            
+            status = parse_verification_status([row[status_idx]] if len(row) > status_idx else row[11:])
+            t_date = parse_target_date([row[date_idx]] if len(row) > date_idx else row[11:])
+            
+            ops_metrics[status] += 1
+            vuln_sev_breakdown[status][sev_key] += 1
+            
+            hash_key = (vuln_name.lower().strip(), threat_desc.lower().strip())
+            if hash_key not in groups_v:
+                groups_v[hash_key] = {
+                    "locations": resolved_hosts, "name": vuln_name, "threat": threat_desc, 
+                    "rating": combined_risk_rating, "fix": remediation, "status": status.title().replace("_", " "), "date": t_date
+                }
+            else:
+                for host in resolved_hosts:
+                    if host not in groups_v[hash_key]["locations"]: groups_v[hash_key]["locations"].append(host)
 
-# Process Code Reviews with Verification[cite: 8]
+        for item in groups_v.values():
+            system_vulnerabilities_map[sys_name].append([
+                sys_name, "\\n".join(item["locations"]), item["name"], item["threat"], item["rating"], item["fix"], item["status"], item["date"]
+            ])
+
+# Process Code Reviews with Verification across ALL tabs[cite: 8, 11]
 for cf in list(JS_CODE_FILES):
     sys_name = extract_system_name(cf)
     if sys_name not in system_code_reviews_map:
@@ -1125,23 +1244,38 @@ for cf in list(JS_CODE_FILES):
     wb = load_workbook(cf, data_only=True)
     for s_name in wb.sheetnames:
         sheet = wb[s_name]
+        header_row_idx, col_map = find_column_mapping(sheet)
         groups_c = {}
+        
         for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
-            if row_idx < 2 or len(row) <= 2 or row[2] is None: continue
-            if not str(row[2]).strip().upper().startswith("C"): continue
+            if row_idx <= header_row_idx: continue
             
-            raw_path = str(row[3]).strip() if row[3] is not None else "System Codebase"
-            vuln_name = str(row[8]).strip() if row[8] is not None else ""
-            threat_desc = str(row[9]).strip() if row[9] is not None else ""
-            remediation = str(row[10]).strip() if row[10] is not None else ""
-            severity = str(row[11]).strip() if row[11] is not None else "Low"
+            obs_idx = col_map.get("obs_num", 2)
+            if len(row) <= obs_idx or row[obs_idx] is None: continue
+            if not str(row[obs_idx]).strip().upper().startswith("C"): continue
+            
+            ip_idx = col_map.get("ip", 3)
+            raw_path = str(row[ip_idx]).strip() if (len(row) > ip_idx and row[ip_idx] is not None) else "System Codebase"
+            
+            v_idx = col_map.get("vuln", 8)
+            t_idx = col_map.get("threat", 9)
+            r_idx = col_map.get("remediation", 10)
+            s_idx = col_map.get("severity", 11)
+
+            vuln_name = str(row[v_idx]).strip() if (len(row) > v_idx and row[v_idx] is not None) else ""
+            threat_desc = str(row[t_idx]).strip() if (len(row) > t_idx and row[t_idx] is not None) else ""
+            remediation = str(row[r_idx]).strip() if (len(row) > r_idx and row[r_idx] is not None) else ""
+            severity = str(row[s_idx]).strip() if (len(row) > s_idx and row[s_idx] is not None) else "Low"
             
             sev_title = "AOI" if "aoi" in severity.lower() else severity.strip().title()
             sev_key = sev_title.lower()
             combined_risk_rating = "AOI" if sev_title == "AOI" else f"{sev_title}\\n[{sev_title}, {sev_title}]"
             
-            status = parse_verification_status(row[11:])
-            t_date = parse_target_date(row[11:])
+            status_idx = col_map.get("status", 12)
+            date_idx = col_map.get("date", 13)
+            
+            status = parse_verification_status([row[status_idx]] if len(row) > status_idx else row[11:])
+            t_date = parse_target_date([row[date_idx]] if len(row) > date_idx else row[11:])
             
             sam_metrics[status] += 1
             code_sev_breakdown[status][sev_key] += 1
