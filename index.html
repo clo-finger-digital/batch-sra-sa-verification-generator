@@ -195,6 +195,150 @@
             else executeVerificationPipeline();
         }
 
+        // Shared Python WAB Universal Parser Code Generator
+        function getUniversalWabParserPythonCode() {
+            return `
+def parse_wab_universal(wab_filepath):
+    wab_doc = Document(wab_filepath)
+    all_paras = [p.text.strip() for p in wab_doc.paragraphs if p.text.strip()]
+    
+    # 1. System Names Extraction (Multi-Strategy: Tabular, Bulleted, Single-System Brief)
+    detected_systems_list = []
+
+    # Strategy A: Tables in Scope/Background/Annex
+    for t in wab_doc.tables:
+        if len(t.rows) > 1:
+            header_text = "".join(c.text.lower() for c in t.rows[0].cells)
+            if ("system name" in header_text or "system" in header_text) and not any(k in header_text for k in ["max", "mark", "weighting", "staff", "role", "deliverable"]):
+                col_idx = -1
+                tier_idx = -1
+                for idx, c in enumerate(t.rows[0].cells):
+                    if "system name" in c.text.lower() or "system" in c.text.lower(): col_idx = idx
+                    if "tier" in c.text.lower() or "classification" in c.text.lower(): tier_idx = idx
+                if col_idx != -1:
+                    for row in t.rows[1:]:
+                        if len(row.cells) > col_idx:
+                            s_name = row.cells[col_idx].text.strip()
+                            s_tier = row.cells[tier_idx].text.strip() if tier_idx != -1 and len(row.cells) > tier_idx else ""
+                            if s_name and not any(s_name.lower().startswith(k) for k in ["system name", "item", "sraa", "ref"]):
+                                entry = f"{s_name} ({s_tier})" if s_tier else s_name
+                                if entry not in detected_systems_list: detected_systems_list.append(entry)
+
+    # Strategy B: Paragraph/Bullet list under Scope
+    if not detected_systems_list:
+        found_major_systems = False
+        for txt in all_paras:
+            if any(phrase in txt.lower() for phrase in ["tentative major information systems", "major information systems and infrastructure include"]):
+                found_major_systems = True
+                continue
+            if found_major_systems and any(stop_phrase in txt.lower() for stop_phrase in ["a security audit", "privacy impact assessment", "scope of the services"]):
+                found_major_systems = False
+                break
+            if found_major_systems and txt and len(txt) < 150 and txt not in detected_systems_list:
+                detected_systems_list.append(txt)
+
+    # Strategy C: Single Title Brief Fallback
+    if not detected_systems_list:
+        for txt in all_paras[:15]:
+            if "implementation of" in txt.lower():
+                match = re.search(r'Implementation of (.*?)( for the|$)', txt, re.IGNORECASE)
+                if match:
+                    detected_systems_list.append(match.group(1).strip())
+                    break
+        if not detected_systems_list:
+            for txt in all_paras[:15]:
+                if "for the implementation of" in txt.lower() or "selected websites" in txt.lower():
+                    detected_systems_list.append(txt)
+                    break
+
+    # 2. Project Objectives Extraction
+    captured_obj = []
+    found_obj = False
+    for txt in all_paras:
+        if any(hdr in txt.lower() for hdr in ["project objectives", "objectives of sraa services", "objectives of sraa"]):
+            found_obj = True
+            continue
+        if found_obj and any(stop_hdr in txt.lower() for stop_hdr in ["project requirements", "user requirements", "objectives of pia services"]):
+            found_obj = False
+            break
+        if found_obj and txt: captured_obj.append(txt)
+
+    # 3. Environment Description (with Appendix/Annex Pointer Resolution)
+    environment_paragraphs = []
+    found_env = False
+    pointer_target = None
+
+    for txt in all_paras:
+        if "current environment description" in txt.lower() or "current environment" in txt.lower():
+            found_env = True
+            continue
+        if found_env and any(stop in txt.lower() for stop in ["project management requirements", "service requirements"]):
+            found_env = False
+            break
+        if found_env and txt:
+            match = re.search(r'(refer to|see) (appendix \w+|annex \d+)', txt, re.IGNORECASE)
+            if match: pointer_target = match.group(2).lower()
+            environment_paragraphs.append(txt)
+
+    if pointer_target or (len(environment_paragraphs) <= 2 and any("refer" in p.lower() for p in environment_paragraphs)):
+        target_name = pointer_target if pointer_target else "appendix a"
+        if "annex 9" in str(environment_paragraphs).lower(): target_name = "annex 9"
+        
+        found_target = False
+        target_paras = []
+        for txt in all_paras:
+            if target_name in txt.lower() and any(k in txt.lower() for k in ["annex", "appendix", "current environment"]):
+                found_target = True
+                continue
+            if found_target and (txt.lower().startswith("annex") and target_name not in txt.lower() or "content outline" in txt.lower()):
+                break
+            if found_target and txt: target_paras.append(txt)
+        if target_paras: environment_paragraphs = target_paras
+
+    # 4. Security Baseline Extraction
+    captured_sec = []
+    found_sec = False
+    for txt in all_paras:
+        if ("together form the" in txt.lower() and "security baseline" in txt.lower()) or "security baseline" in txt.lower():
+            found_sec = True
+            continue
+        if found_sec and any(stop in txt.lower() for stop in ["scope of the assessment include", "gather all relevant information"]):
+            found_sec = False
+            break
+        if found_sec and txt: captured_sec.append(txt)
+            
+    if not captured_sec:
+        found_std = False
+        for txt in all_paras:
+            if "government standards, methodologies and quality requirements" in txt.lower():
+                found_std = True
+                continue
+            if found_std and any(stop in txt.lower() for stop in ["project deliverables", "other requirements", "acceptance criteria"]):
+                break
+            if found_std and txt: captured_sec.append(txt)
+
+    # 5. Major System Infrastructure Specs (Annex B / Appendix)
+    captured_annex_b = []
+    found_annex_b = False
+    for txt in all_paras:
+        if any(k in txt.lower() for k in ["major system description", "existing hardware and software", "equipment list", "system features"]) and any(a in txt.lower() for a in ["annex", "appendix"]):
+            found_annex_b = True
+            continue
+        if found_annex_b and any(stop in txt.lower() for stop in ["annex 2", "annex 10", "content outline"]):
+            found_annex_b = False
+            break
+        if found_annex_b and txt: captured_annex_b.append(txt)
+
+    return {
+        "systems": detected_systems_list,
+        "obj": captured_obj,
+        "env": environment_paragraphs,
+        "sec": captured_sec,
+        "annex_b": captured_annex_b
+    }
+`;
+        }
+
         // ==========================================
         // PIPELINE 1: SRA GENERATION[cite: 5, 6]
         // ==========================================
@@ -317,6 +461,8 @@ def insert_paragraph_after(paragraph, text, style=None):
     paragraph._p.addnext(new_p._p)
     return new_p
 
+${getUniversalWabParserPythonCode()}
+
 def extract_system_name(filename):
     clean_name = os.path.splitext(filename)[0]
     for split_word in ["Follow-Up Plan", "Follow-up Action Plan", "Code Review"]:
@@ -325,10 +471,7 @@ def extract_system_name(filename):
     return clean_name.replace("-", "").replace("_", "").strip()
 
 def find_column_mapping(sheet):
-    """
-    Scans rows in a sheet to dynamically discover the header row and map target column names[cite: 11].
-    Excludes 'observation/findings' and extracts 'risk name/observation'.
-    """
+    """ Scans rows in a sheet to dynamically discover the header row and map target column names[cite: 11]. """
     target_keys = {
         "obs_num": ["obs", "no", "item", "id", "ref"],
         "ip": ["ip", "host", "asset", "url", "target"],
@@ -342,13 +485,12 @@ def find_column_mapping(sheet):
     header_row_idx = None
     
     for row_idx, row in enumerate(sheet.iter_rows(values_only=True)):
-        if row_idx > 25: break  # limit scanning depth
+        if row_idx > 25: break
         row_cells_lower = [str(c).strip().lower() if c is not None else "" for c in row]
         matches = 0
         temp_map = {}
         for c_idx, text in enumerate(row_cells_lower):
             if not text: continue
-            # Explicitly ignore detailed observation/findings column
             if "observation/findings" in text or "findings description" in text:
                 continue
             for key, patterns in target_keys.items():
@@ -360,7 +502,6 @@ def find_column_mapping(sheet):
             col_map = temp_map
             break
 
-    # Fallback mapping if header was not dynamically found
     if header_row_idx is None:
         header_row_idx = 1
         col_map = {"obs_num": 2, "ip": 3, "port": 4, "vuln": 8, "threat": 9, "remediation": 10, "severity": 11}
@@ -370,8 +511,7 @@ def find_column_mapping(sheet):
 def format_risk_rating(raw_val):
     if not raw_val: return "Low [Low, Low]"
     clean = str(raw_val).strip()
-    if "aoi" in clean.lower():
-        return "AOI"
+    if "aoi" in clean.lower(): return "AOI"
     base = clean.split()[0].title()
     return f"{base} [{base}, {base}]"
 
@@ -380,22 +520,9 @@ global_sam_metrics = {"high": 0, "medium": 0, "low": 0, "aoi": 0}
 system_vulnerabilities_map = {}
 system_code_reviews_map = {}
 
-print("Parsing WAB file...")
-wab_doc = Document(JS_WAB_NAME)
-detected_systems_list = []
-found_major_systems = False
-
-for p in list(wab_doc.paragraphs):
-    txt = p.text.strip()
-    if not txt: continue
-    if "the tentative major information systems" in txt.lower():
-        found_major_systems = True
-        continue
-    if found_major_systems and "a security audit" in txt.lower():
-        found_major_systems = False
-        break
-    if found_major_systems and txt not in detected_systems_list:
-        detected_systems_list.append(txt)
+print("Executing Universal WAB Multi-Bureau Parser...")
+wab_data = parse_wab_universal(JS_WAB_NAME)
+detected_systems_list = wab_data["systems"]
 
 def generate_dynamic_count_string(metrics_dict):
     parts = []
@@ -429,9 +556,7 @@ for pf in list(JS_PLAN_FILES):
             vuln_name = str(row[v_idx]).strip() if (v_idx is not None and len(row) > v_idx and row[v_idx] is not None) else ""
             threat_desc = str(row[t_idx]).strip() if (t_idx is not None and len(row) > t_idx and row[t_idx] is not None) else ""
             
-            # Data Presence Filter: Process row if it contains finding data regardless of ID prefix
-            if not vuln_name and not threat_desc:
-                continue
+            if not vuln_name and not threat_desc: continue
 
             obs_idx = col_map.get("obs_num")
             obs_num = str(row[obs_idx]).strip().upper() if (obs_idx is not None and len(row) > obs_idx and row[obs_idx] is not None) else f"ITEM-{row_idx}"
@@ -490,8 +615,7 @@ for cf in list(JS_CODE_FILES):
             vuln_name = str(row[v_idx]).strip() if (v_idx is not None and len(row) > v_idx and row[v_idx] is not None) else ""
             threat_desc = str(row[t_idx]).strip() if (t_idx is not None and len(row) > t_idx and row[t_idx] is not None) else ""
             
-            if not vuln_name and not threat_desc:
-                continue
+            if not vuln_name and not threat_desc: continue
 
             ip_idx = col_map.get("ip")
             raw_path = str(row[ip_idx]).strip() if (ip_idx is not None and len(row) > ip_idx and row[ip_idx] is not None) else "System Codebase"
@@ -562,7 +686,7 @@ for p_idx, p in enumerate(list(doc.paragraphs)):
     lower_normalized = p.text.lower().replace(" ", "").replace(",", "").replace("*", "")
     
     # Fill Dynamic System Lists in Paragraphs
-    if "systemnamescopiedfromsra1.1partb" in lower_normalized:
+    if "systemnamescopiedfromsra1.1partb" in lower_normalized or "systemnamescopiedfromwab1.1partb" in lower_normalized:
         p.text = ""
         current_anchor = p
         if detected_systems_list:
@@ -583,7 +707,7 @@ for table in doc.tables:
             apply_text_styling_and_borders(new_row.cells[0], str(idx + 1), center=True)
             apply_text_styling_and_borders(new_row.cells[1], str(s_name))
             if len(new_row.cells) > 2:
-                apply_text_styling_and_borders(new_row.cells[2], "Tier 1" if "tier-2" not in s_name.lower() else "Tier 2")
+                apply_text_styling_and_borders(new_row.cells[2], "Tier 1" if "tier 2" not in s_name.lower() else "Tier 2")
         continue
 
     if "date of network & host levels" in first_row_text or "time frame" in first_row_text:
@@ -775,22 +899,16 @@ def insert_paragraph_after(paragraph, text, style=None):
     paragraph._p.addnext(new_p._p)
     return new_p
 
-print("Parsing WAB...")
-wab_doc = Document(JS_WAB_NAME)
-detected_systems_list = []
-found_major_systems = False
+${getUniversalWabParserPythonCode()}
 
-for p in list(wab_doc.paragraphs):
-    txt = p.text.strip()
-    if not txt: continue
-    if "the tentative major information systems" in txt.lower():
-        found_major_systems = True
-        continue
-    if found_major_systems and "a security audit" in txt.lower():
-        found_major_systems = False
-        break
-    if found_major_systems and txt not in detected_systems_list:
-        detected_systems_list.append(txt)
+print("Executing Universal WAB Multi-Bureau Parser for SA...")
+wab_data = parse_wab_universal(JS_WAB_NAME)
+
+detected_systems_list = wab_data["systems"]
+captured_obj = wab_data["obj"]
+environment_paragraphs = wab_data["env"]
+captured_sec = wab_data["sec"]
+captured_annex_b = wab_data["annex_b"]
 
 replacements = [
     ("*company name* Limited", company_name), ("*company name*", company_name),
@@ -821,55 +939,6 @@ def synchronize_and_replace_dates(p, lookup_tuples):
             p.runs[0].text = full_text
             for r in p.runs[1:]: r.text = ""
         else: p.text = full_text
-
-environment_paragraphs = []
-found_env = False
-for p in list(wab_doc.paragraphs):
-    txt = p.text.strip()
-    if not txt: continue
-    if "current environment description" in txt.lower():
-        found_env = True
-        continue
-    if found_env and "project management requirements" in txt.lower():
-        found_env = False
-        break
-    if found_env: environment_paragraphs.append(txt)
-
-captured_obj = []
-found_obj = False
-for wp in wab_doc.paragraphs:
-    wtxt = wp.text.strip()
-    if "objectives of sraa services" in wtxt.lower() or "objectives of sraa" in wtxt.lower():
-        found_obj = True
-        continue
-    if found_obj and "objectives of pia services" in wtxt.lower():
-        found_obj = False
-        break
-    if found_obj and wtxt: captured_obj.append(wtxt)
-
-captured_sec = []
-found_sec = False
-for wp in wab_doc.paragraphs:
-    wtxt = wp.text.strip()
-    if "together form the" in wtxt.lower() and "security baseline" in wtxt.lower():
-        found_sec = True
-        continue
-    if found_sec and "the scope of the assessment include" in wtxt.lower():
-        found_sec = False
-        break
-    if found_sec and wtxt: captured_sec.append(wtxt)
-
-captured_annex_b = []
-found_annex_b = False
-for wp in wab_doc.paragraphs:
-    wtxt = wp.text.strip()
-    if "major system description" in wtxt.lower() and "annex" in wtxt.lower():
-        found_annex_b = True
-        continue
-    if found_annex_b and ("list of csb" in wtxt.lower() or "annex 1" in wtxt.lower() or "section c" in wtxt.lower() or wp.style.name.startswith("Heading")):
-        found_annex_b = False
-        break
-    if found_annex_b: captured_annex_b.append(wtxt)
 
 for p_idx, p in enumerate(list(doc.paragraphs)):
     lower_normalized = p.text.lower().replace(" ", "").replace(",", "").replace("*", "")
@@ -1087,6 +1156,8 @@ def insert_paragraph_after(paragraph, text, style=None):
     paragraph._p.addnext(new_p._p)
     return new_p
 
+${getUniversalWabParserPythonCode()}
+
 def extract_system_name(filename):
     clean_name = os.path.splitext(filename)[0]
     for split_word in ["Follow-Up Plan", "Follow-up Action Plan", "Code Review"]:
@@ -1095,10 +1166,7 @@ def extract_system_name(filename):
     return clean_name.replace("-", "").replace("_", "").strip()
 
 def find_column_mapping(sheet):
-    """
-    Scans rows in a sheet to dynamically discover the header row and map target column names[cite: 11].
-    Excludes 'observation/findings' and extracts 'risk name/observation'.
-    """
+    """ Scans rows in a sheet to dynamically discover the header row and map target column names[cite: 11]. """
     target_keys = {
         "obs_num": ["obs", "no", "item", "id", "ref"],
         "ip": ["ip", "host", "asset", "url", "target"],
@@ -1140,8 +1208,7 @@ def find_column_mapping(sheet):
 def format_risk_rating(raw_val):
     if not raw_val: return "Low [Low, Low]"
     clean = str(raw_val).strip()
-    if "aoi" in clean.lower():
-        return "AOI"
+    if "aoi" in clean.lower(): return "AOI"
     base = clean.split()[0].title()
     return f"{base} [{base}, {base}]"
 
@@ -1162,22 +1229,9 @@ code_sev_breakdown = {
 system_vulnerabilities_map = {}
 system_code_reviews_map = {}
 
-print("Parsing WAB...")
-wab_doc = Document(JS_WAB_NAME)
-detected_systems_list = []
-found_major_systems = False
-
-for p in list(wab_doc.paragraphs):
-    txt = p.text.strip()
-    if not txt: continue
-    if "the tentative major information systems" in txt.lower():
-        found_major_systems = True
-        continue
-    if found_major_systems and "a security audit" in txt.lower():
-        found_major_systems = False
-        break
-    if found_major_systems and txt not in detected_systems_list:
-        detected_systems_list.append(txt)
+print("Executing Universal WAB Multi-Bureau Parser for VR...")
+wab_data = parse_wab_universal(JS_WAB_NAME)
+detected_systems_list = wab_data["systems"]
 
 def parse_verification_status(row_cells):
     for cell in row_cells:
@@ -1222,8 +1276,7 @@ for pf in list(JS_PLAN_FILES):
             vuln_name = str(row[v_idx]).strip() if (v_idx is not None and len(row) > v_idx and row[v_idx] is not None) else ""
             threat_desc = str(row[t_idx]).strip() if (t_idx is not None and len(row) > t_idx and row[t_idx] is not None) else ""
             
-            if not vuln_name and not threat_desc:
-                continue
+            if not vuln_name and not threat_desc: continue
 
             obs_idx = col_map.get("obs_num")
             obs_num = str(row[obs_idx]).strip().upper() if (obs_idx is not None and len(row) > obs_idx and row[obs_idx] is not None) else f"ITEM-{row_idx}"
@@ -1297,8 +1350,7 @@ for cf in list(JS_CODE_FILES):
             vuln_name = str(row[v_idx]).strip() if (v_idx is not None and len(row) > v_idx and row[v_idx] is not None) else ""
             threat_desc = str(row[t_idx]).strip() if (t_idx is not None and len(row) > t_idx and row[t_idx] is not None) else ""
             
-            if not vuln_name and not threat_desc:
-                continue
+            if not vuln_name and not threat_desc: continue
 
             ip_idx = col_map.get("ip")
             raw_path = str(row[ip_idx]).strip() if (ip_idx is not None and len(row) > ip_idx and row[ip_idx] is not None) else "System Codebase"
