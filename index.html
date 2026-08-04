@@ -202,7 +202,16 @@ def parse_wab_universal(wab_filepath):
     wab_doc = Document(wab_filepath)
     all_paras = [p.text.strip() for p in wab_doc.paragraphs if p.text.strip()]
     
-    # 1. System Names Extraction (Kept intact for downstream processing)
+    # 0. Page 1 SRAA Title Extraction starting from "Security Risk Assessment"
+    extracted_title = ""
+    for p_txt in all_paras[:10]:
+        match = re.search(r'security risk assess?ment', p_txt, re.IGNORECASE)
+        if match:
+            idx = match.start()
+            extracted_title = p_txt[idx:].strip()
+            break
+
+    # 1. System Names Extraction
     detected_systems_list = []
     for t in wab_doc.tables:
         if len(t.rows) > 1:
@@ -336,6 +345,7 @@ def parse_wab_universal(wab_filepath):
             captured_annex_b.append(txt)
 
     return {
+        "title": extracted_title,
         "systems": detected_systems_list,
         "scope": captured_scope,
         "obj": final_obj,
@@ -702,6 +712,7 @@ global_combined = {level: global_ops_metrics[level] + global_sam_metrics[level] 
 conclusion_overall_string = generate_dynamic_count_string(global_combined)
 
 replacements = [
+    ("*sraa title*", wab_data.get("title", "")),
     ("*company name* Limited", company_name), ("*company name*", company_name),
     ("*testee name*", testee_name), ("testee name", testee_name),
     ("*TESTEE ABBREVIATION*", testee_abbr), ("TESTEE ABBREVIATION", testee_abbr),
