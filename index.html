@@ -13,7 +13,7 @@
     <div class="max-w-4xl mx-auto px-4 py-12">
         <header class="border-b border-slate-800 pb-6 mb-8">
             <h1 class="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">Departmental SRAA Pipeline Hub</h1>
-            <p class="mt-2 text-sm text-slate-400">Generate fully compiled SRA, SA, or Verification Reports completely client-side via in-browser WebAssembly compilation[cite: 5, 6, 7, 8].</p>
+            <p class="mt-2 text-sm text-slate-400">Generate fully compiled SRA, SA, or Verification Reports completely client-side via in-browser WebAssembly compilation.</p>
         </header>
 
         <!-- PIPELINE NAVIGATION TABS -->
@@ -156,14 +156,14 @@
                 tabSa.className = "px-4 py-2 text-sm font-medium border-b-2 border-blue-500 text-blue-400 transition-all duration-200";
                 planGroup.classList.add('hidden');
                 codeGroup.classList.add('hidden');
-                title.innerText = "Mandatory SA Document Collection (WAB Only)[cite: 6]";
-                hint.innerHTML = 'Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">batch SA template.docx</code>[cite: 7].';
+                title.innerText = "Mandatory SA Document Collection (WAB Only)";
+                hint.innerHTML = 'Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">batch SA template.docx</code>.';
             } else if (pipeline === 'vr') {
                 tabVr.className = "px-4 py-2 text-sm font-medium border-b-2 border-blue-500 text-blue-400 transition-all duration-200";
                 planGroup.classList.remove('hidden');
                 codeGroup.classList.remove('hidden');
-                title.innerText = "Mandatory Verification Document Batch Collection[cite: 8]";
-                hint.innerHTML = 'Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">batch verification template.docx</code>[cite: 8].';
+                title.innerText = "Mandatory Verification Document Batch Collection";
+                hint.innerHTML = 'Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">batch verification template.docx</code>.';
             }
             updateButtonLabel();
         }
@@ -202,10 +202,8 @@ def parse_wab_universal(wab_filepath):
     wab_doc = Document(wab_filepath)
     all_paras = [p.text.strip() for p in wab_doc.paragraphs if p.text.strip()]
     
-    # 1. System Names Extraction (Multi-Strategy: Tabular, Bulleted, Single-System Brief)
+    # 1. System Names Extraction (Kept intact for downstream processing)
     detected_systems_list = []
-
-    # Strategy A: Tables in Scope/Background/Annex
     for t in wab_doc.tables:
         if len(t.rows) > 1:
             header_text = "".join(c.text.lower() for c in t.rows[0].cells)
@@ -224,46 +222,47 @@ def parse_wab_universal(wab_filepath):
                                 entry = f"{s_name} ({s_tier})" if s_tier else s_name
                                 if entry not in detected_systems_list: detected_systems_list.append(entry)
 
-    # Strategy B: Paragraph/Bullet list under Scope
-    if not detected_systems_list:
-        found_major_systems = False
-        for txt in all_paras:
-            if any(phrase in txt.lower() for phrase in ["tentative major information systems", "major information systems and infrastructure include"]):
-                found_major_systems = True
-                continue
-            if found_major_systems and any(stop_phrase in txt.lower() for stop_phrase in ["a security audit", "privacy impact assessment", "scope of the services"]):
-                found_major_systems = False
-                break
-            if found_major_systems and txt and len(txt) < 150 and txt not in detected_systems_list:
-                detected_systems_list.append(txt)
+    # 2. Scope of Services Extraction (Section 1.1)
+    captured_scope = []
+    found_scope = False
+    for txt in all_paras:
+        if any(hdr in txt.lower() for hdr in ["scope of the services", "scope of services", "1. scope of services"]):
+            found_scope = True
+            continue
+        if found_scope and any(stop_hdr in txt.lower() for stop_hdr in ["background", "2. background", "project objectives"]):
+            found_scope = False
+            break
+        if found_scope and txt:
+            captured_scope.append(txt)
 
-    # Strategy C: Single Title Brief Fallback
-    if not detected_systems_list:
-        for txt in all_paras[:15]:
-            if "implementation of" in txt.lower():
-                match = re.search(r'Implementation of (.*?)( for the|$)', txt, re.IGNORECASE)
-                if match:
-                    detected_systems_list.append(match.group(1).strip())
-                    break
-        if not detected_systems_list:
-            for txt in all_paras[:15]:
-                if "for the implementation of" in txt.lower() or "selected websites" in txt.lower():
-                    detected_systems_list.append(txt)
-                    break
-
-    # 2. Project Objectives Extraction
+    # 3. Project Objectives Extraction (Section 3) - Isolate SRAA Objectives
     captured_obj = []
     found_obj = False
+    sraa_only_mode = False
+    temp_sraa_obj = []
+    
     for txt in all_paras:
         if any(hdr in txt.lower() for hdr in ["project objectives", "objectives of sraa services", "objectives of sraa"]):
             found_obj = True
             continue
-        if found_obj and any(stop_hdr in txt.lower() for stop_hdr in ["project requirements", "user requirements", "objectives of pia services"]):
+        if found_obj and any(stop_hdr in txt.lower() for stop_hdr in ["project requirements", "user requirements"]):
             found_obj = False
             break
-        if found_obj and txt: captured_obj.append(txt)
+        if found_obj and txt:
+            if "objectives of security risk assessment" in txt.lower() or "objectives of sraa" in txt.lower():
+                sraa_only_mode = True
+                continue
+            if "objectives of pia" in txt.lower():
+                sraa_only_mode = False
+                continue
+            if sraa_only_mode:
+                temp_sraa_obj.append(txt)
+            else:
+                captured_obj.append(txt)
 
-    # 3. Environment Description (with Appendix/Annex Pointer Resolution)
+    final_obj = temp_sraa_obj if temp_sraa_obj else captured_obj
+
+    # 4. Environment Description (Section 4.1.1 + Appendix / Annex Pointer Expansion)
     environment_paragraphs = []
     found_env = False
     pointer_target = None
@@ -276,37 +275,42 @@ def parse_wab_universal(wab_filepath):
             found_env = False
             break
         if found_env and txt:
-            match = re.search(r'(refer to|see) (appendix \w+|annex \d+)', txt, re.IGNORECASE)
-            if match: pointer_target = match.group(2).lower()
+            match = re.search(r'(refer to|see)\\s+(appendix\\s+\\w+|annex\\s+\\d+)', txt, re.IGNORECASE)
+            if match:
+                pointer_target = match.group(2).lower()
             environment_paragraphs.append(txt)
 
-    if pointer_target or (len(environment_paragraphs) <= 2 and any("refer" in p.lower() for p in environment_paragraphs)):
+    if pointer_target or (len(environment_paragraphs) <= 3 and any("refer" in p.lower() for p in environment_paragraphs)):
         target_name = pointer_target if pointer_target else "appendix a"
-        if "annex 9" in str(environment_paragraphs).lower(): target_name = "annex 9"
+        if "annex 1" in str(environment_paragraphs).lower() and not pointer_target:
+            target_name = "annex 1"
         
         found_target = False
         target_paras = []
         for txt in all_paras:
-            if target_name in txt.lower() and any(k in txt.lower() for k in ["annex", "appendix", "current environment"]):
+            if target_name in txt.lower() and any(k in txt.lower() for k in ["annex", "appendix", "description"]):
                 found_target = True
                 continue
-            if found_target and (txt.lower().startswith("annex") and target_name not in txt.lower() or "content outline" in txt.lower()):
+            if found_target and (re.match(r'^(annex|appendix)\\s+\\d+', txt, re.I) and target_name not in txt.lower() or "content outline" in txt.lower()):
                 break
-            if found_target and txt: target_paras.append(txt)
-        if target_paras: environment_paragraphs = target_paras
+            if found_target and txt:
+                target_paras.append(txt)
+        if target_paras:
+            environment_paragraphs = target_paras
 
-    # 4. Security Baseline Extraction
+    # 5. Security Requirements / Baseline Baseline Extraction (Section 4.1.3 / Clause 4.4)
     captured_sec = []
     found_sec = False
     for txt in all_paras:
-        if ("together form the" in txt.lower() and "security baseline" in txt.lower()) or "security baseline" in txt.lower():
+        if "together form the “security baseline”" in txt.lower() or "together form the 'security baseline'" in txt.lower() or "security baseline" in txt.lower():
             found_sec = True
             continue
-        if found_sec and any(stop in txt.lower() for stop in ["scope of the assessment include", "gather all relevant information"]):
+        if found_sec and any(stop in txt.lower() for stop in ["scope of the assessment include", "gather all relevant information", "essential requirements"]):
             found_sec = False
             break
-        if found_sec and txt: captured_sec.append(txt)
-            
+        if found_sec and txt:
+            captured_sec.append(txt)
+
     if not captured_sec:
         found_std = False
         for txt in all_paras:
@@ -315,32 +319,85 @@ def parse_wab_universal(wab_filepath):
                 continue
             if found_std and any(stop in txt.lower() for stop in ["project deliverables", "other requirements", "acceptance criteria"]):
                 break
-            if found_std and txt: captured_sec.append(txt)
+            if found_std and txt:
+                captured_sec.append(txt)
 
-    # 5. Major System Infrastructure Specs (Annex B / Appendix)
+    # 6. Major System Infrastructure Specs (Annex B / Appendix / Annex 1)
     captured_annex_b = []
     found_annex_b = False
     for txt in all_paras:
         if any(k in txt.lower() for k in ["major system description", "existing hardware and software", "equipment list", "system features"]) and any(a in txt.lower() for a in ["annex", "appendix"]):
             found_annex_b = True
             continue
-        if found_annex_b and any(stop in txt.lower() for stop in ["annex 2", "annex 10", "content outline"]):
+        if found_annex_b and any(stop in txt.lower() for stop in ["annex 2", "annex 3", "content outline"]):
             found_annex_b = False
             break
-        if found_annex_b and txt: captured_annex_b.append(txt)
+        if found_annex_b and txt:
+            captured_annex_b.append(txt)
 
     return {
         "systems": detected_systems_list,
-        "obj": captured_obj,
+        "scope": captured_scope,
+        "obj": final_obj,
         "env": environment_paragraphs,
         "sec": captured_sec,
         "annex_b": captured_annex_b
     }
+
+def process_wab_pointer_replacements(doc, wab_data):
+    """ Universal handler to substitute pointer placeholder paragraphs across all pipelines """
+    for p in list(doc.paragraphs):
+        lower_norm = p.text.lower().replace(" ", "").replace(",", "").replace("*", "").replace("-", "").replace("(", "").replace(")", "")
+        
+        # Scope Pointers (Section 1.1)
+        if any(k in lower_norm for k in ["copyfromsra1.1partaandb", "copyfromsra1.1", "copyfromwab1.1", "copyfromwabsection1.1"]):
+            p.text = ""
+            anchor = p
+            if wab_data.get("scope"):
+                for line in wab_data["scope"]:
+                    anchor = insert_paragraph_after(anchor, line, style='Normal')
+            continue
+
+        # Objective Pointers (Section 3.1)
+        if any(k in lower_norm for k in ["copyfromwabsection3.1", "copyfromwabsection3", "copyfromwab3.1", "copyfromwab3"]):
+            p.text = ""
+            anchor = p
+            if wab_data.get("obj"):
+                for line in wab_data["obj"]:
+                    anchor = insert_paragraph_after(anchor, line, style='List Bullet')
+            continue
+
+        # Environment Pointers (Section 4.1.1)
+        if any(k in lower_norm for k in ["copyfromwabsection4.1.1", "copyfromwab4.1.1", "acopyfromwabsection4.1.1"]):
+            p.text = ""
+            anchor = p
+            if wab_data.get("env"):
+                for line in wab_data["env"]:
+                    anchor = insert_paragraph_after(anchor, line, style='Normal')
+            continue
+
+        # Security Baseline Pointers (Section 4.1.3)
+        if any(k in lower_norm for k in ["copyfromwabsection4.1.3sectiona", "copyfromwabsection4.1.3,sectiona", "copyfromwabsection4.1.3", "copyfromwab4.1.3"]):
+            p.text = ""
+            anchor = p
+            if wab_data.get("sec"):
+                for line in wab_data["sec"]:
+                    anchor = insert_paragraph_after(anchor, line, style='List Bullet')
+            continue
+
+        # Major System Description / Annex B Pointers
+        if any(k in lower_norm for k in ["copyfromwabannexbmajorsystemdescription", "copyfromwabannexb", "copyfromwabappendix"]):
+            p.text = ""
+            anchor = p
+            if wab_data.get("annex_b"):
+                for line in wab_data["annex_b"]:
+                    anchor = insert_paragraph_after(anchor, line, style='Normal')
+            continue
 `;
         }
 
         // ==========================================
-        // PIPELINE 1: SRA GENERATION[cite: 5, 6]
+        // PIPELINE 1: SRA GENERATION
         // ==========================================
         async function executeSRAPipeline() {
             if (!pyodideModule) return;
@@ -471,7 +528,6 @@ def extract_system_name(filename):
     return clean_name.replace("-", "").replace("_", "").strip()
 
 def find_column_mapping(sheet):
-    """ Scans rows in a sheet to dynamically discover the header row and map target column names[cite: 11]. """
     target_keys = {
         "obs_num": ["obs", "no", "item", "id", "ref"],
         "ip": ["ip", "host", "asset", "url", "target"],
@@ -532,7 +588,7 @@ def generate_dynamic_count_string(metrics_dict):
             parts.append(f"{cnt} {'AOI' if level == 'aoi' else level}")
     return " and ".join(parts) if parts else "0 risk items"
 
-# Dynamic Spreadsheet Processing across ALL tabs[cite: 11]
+# Dynamic Spreadsheet Processing across ALL tabs
 for pf in list(JS_PLAN_FILES):
     file_sys_name = extract_system_name(pf)
     wb = load_workbook(pf, data_only=True)
@@ -657,6 +713,9 @@ replacements = [
 
 doc = Document("batch_sra_template.docx")
 
+# Universal pointer replacement pass
+process_wab_pointer_replacements(doc, wab_data)
+
 def synchronize_and_replace_dates(p, lookup_tuples):
     if p.style.name.startswith("Heading"): return
     full_text = "".join(run.text for run in p.runs)
@@ -683,41 +742,11 @@ def synchronize_and_replace_dates(p, lookup_tuples):
 
 # Text replacement passes
 for p_idx, p in enumerate(list(doc.paragraphs)):
-    lower_normalized = p.text.lower().replace(" ", "").replace(",", "").replace("*", "")
-    
-    # Fill Dynamic System Lists in Paragraphs
-    if "systemnamescopiedfromsra1.1partb" in lower_normalized or "systemnamescopiedfromwab1.1partb" in lower_normalized:
-        p.text = ""
-        current_anchor = p
-        if detected_systems_list:
-            for idx, s_name in enumerate(detected_systems_list):
-                current_anchor = insert_paragraph_after(current_anchor, f"{idx + 1}.  {s_name}", style='Normal')
-        continue
-
     synchronize_and_replace_dates(p, replacements)
 
 for table in doc.tables:
     if len(table.rows) == 0 or len(table.rows[0].cells) == 0: continue
     first_row_text = "".join(cell.text.lower() for cell in table.rows[0].cells)
-    
-    if "it system/it infrastructure" in first_row_text:
-        for r_idx in range(len(table.rows) - 1, 0, -1): table._tbl.remove(table.rows[r_idx]._tr)
-        for idx, s_name in enumerate(detected_systems_list):
-            new_row = table.add_row()
-            apply_text_styling_and_borders(new_row.cells[0], str(idx + 1), center=True)
-            apply_text_styling_and_borders(new_row.cells[1], str(s_name))
-            if len(new_row.cells) > 2:
-                apply_text_styling_and_borders(new_row.cells[2], "Tier 1" if "tier 2" not in s_name.lower() else "Tier 2")
-        continue
-
-    if "date of network & host levels" in first_row_text or "time frame" in first_row_text:
-        for r_idx in range(len(table.rows) - 1, 0, -1): table._tbl.remove(table.rows[r_idx]._tr)
-        for idx, s_name in enumerate(detected_systems_list):
-            new_row = table.add_row()
-            apply_text_styling_and_borders(new_row.cells[0], str(idx + 1), center=True)
-            apply_text_styling_and_borders(new_row.cells[1], str(s_name))
-            for c_idx in range(2, len(new_row.cells)): apply_text_styling_and_borders(new_row.cells[c_idx], "")
-        continue
 
     if "affected it systems" in first_row_text and "asset value" in first_row_text:
         for r_idx in range(len(table.rows) - 1, 0, -1): table._tbl.remove(table.rows[r_idx]._tr)
@@ -798,7 +827,7 @@ print("SRA Task Completed.")
         }
 
         // ==========================================
-        // PIPELINE 2: SECURITY AUDIT (SA) REPORT[cite: 6, 7]
+        // PIPELINE 2: SECURITY AUDIT (SA) REPORT
         // ==========================================
         async function executeSAPipeline() {
             if (!pyodideModule) return;
@@ -904,12 +933,6 @@ ${getUniversalWabParserPythonCode()}
 print("Executing Universal WAB Multi-Bureau Parser for SA...")
 wab_data = parse_wab_universal(JS_WAB_NAME)
 
-detected_systems_list = wab_data["systems"]
-captured_obj = wab_data["obj"]
-environment_paragraphs = wab_data["env"]
-captured_sec = wab_data["sec"]
-captured_annex_b = wab_data["annex_b"]
-
 replacements = [
     ("*company name* Limited", company_name), ("*company name*", company_name),
     ("*testee name*", testee_name), ("testee name", testee_name),
@@ -918,6 +941,9 @@ replacements = [
 ]
 
 doc = Document("batch_sa_template_base.docx")
+
+# Universal pointer replacement pass
+process_wab_pointer_replacements(doc, wab_data)
 
 def synchronize_and_replace_dates(p, lookup_tuples):
     if p.style.name.startswith("Heading"): return
@@ -941,44 +967,6 @@ def synchronize_and_replace_dates(p, lookup_tuples):
         else: p.text = full_text
 
 for p_idx, p in enumerate(list(doc.paragraphs)):
-    lower_normalized = p.text.lower().replace(" ", "").replace(",", "").replace("*", "")
-    
-    if "systemnamescopiedfromwab1.1partb" in lower_normalized:
-        p.text = ""
-        current_anchor = p
-        if detected_systems_list:
-            for idx, s_name in enumerate(detected_systems_list):
-                current_anchor = insert_paragraph_after(current_anchor, f"{idx + 1}.  {s_name}", style='Normal')
-        continue
-
-    if "copyfromwabsection4.1.1" in lower_normalized:
-        p.text = ""
-        current_anchor = p
-        if environment_paragraphs:
-            for line in environment_paragraphs: current_anchor = insert_paragraph_after(current_anchor, line, style='Normal')
-        continue
-
-    if "copyfromwabsection3.1" in lower_normalized:
-        p.text = ""
-        current_anchor = p
-        if captured_obj:
-            for line in captured_obj: current_anchor = insert_paragraph_after(current_anchor, line, style='List Bullet')
-        continue
-
-    if "copyfromwabsection4.1.3sectiona" in lower_normalized or "copyfromwabsection4.1.3,sectiona" in lower_normalized:
-        p.text = ""
-        current_anchor = p
-        if captured_sec:
-            for line in captured_sec: current_anchor = insert_paragraph_after(current_anchor, line, style='List Bullet')
-        continue
-
-    if "copyfromwabannexbmajorsystemdescription" in lower_normalized:
-        p.text = ""
-        current_anchor = p
-        if captured_annex_b:
-            for line in captured_annex_b: current_anchor = insert_paragraph_after(current_anchor, line, style='Normal')
-        continue
-
     synchronize_and_replace_dates(p, replacements)
 
 for table in doc.tables:
@@ -1035,7 +1023,7 @@ print("SA Task Completed.")
         }
 
         // ==========================================
-        // PIPELINE 3: VERIFICATION REPORT GENERATION[cite: 8]
+        // PIPELINE 3: VERIFICATION REPORT GENERATION
         // ==========================================
         async function executeVerificationPipeline() {
             if (!pyodideModule) return;
@@ -1050,7 +1038,7 @@ print("SA Task Completed.")
             const iCodeList = await readMultipleFiles("files_codereview");
 
             if (iWabList.length === 0 || iPlanList.length === 0 || iCodeList.length === 0) {
-                logToConsole("Validation Failed: Verification Report requires WAB, plans, and code reviews[cite: 8].");
+                logToConsole("Validation Failed: Verification Report requires WAB, plans, and code reviews.");
                 alert("Please submit all required documents.");
                 return;
             }
@@ -1166,7 +1154,6 @@ def extract_system_name(filename):
     return clean_name.replace("-", "").replace("_", "").strip()
 
 def find_column_mapping(sheet):
-    """ Scans rows in a sheet to dynamically discover the header row and map target column names[cite: 11]. """
     target_keys = {
         "obs_num": ["obs", "no", "item", "id", "ref"],
         "ip": ["ip", "host", "asset", "url", "target"],
@@ -1231,7 +1218,6 @@ system_code_reviews_map = {}
 
 print("Executing Universal WAB Multi-Bureau Parser for VR...")
 wab_data = parse_wab_universal(JS_WAB_NAME)
-detected_systems_list = wab_data["systems"]
 
 def parse_verification_status(row_cells):
     for cell in row_cells:
@@ -1252,7 +1238,7 @@ def parse_target_date(row_cells):
             return str(cell).strip()
     return "N/A"
 
-# Process SRA Follow-Up Plans across ALL tabs[cite: 8, 11]
+# Process SRA Follow-Up Plans across ALL tabs
 for pf in list(JS_PLAN_FILES):
     file_sys_name = extract_system_name(pf)
     wb = load_workbook(pf, data_only=True)
@@ -1326,7 +1312,7 @@ for pf in list(JS_PLAN_FILES):
                 sys_name, "\\n".join(item["locations"]), item["name"], item["threat"], item["rating"], item["fix"], item["status"], item["date"]
             ])
 
-# Process Code Reviews with Verification across ALL tabs[cite: 8, 11]
+# Process Code Reviews with Verification across ALL tabs
 for cf in list(JS_CODE_FILES):
     file_sys_name = extract_system_name(cf)
     wb = load_workbook(cf, data_only=True)
@@ -1389,10 +1375,7 @@ for cf in list(JS_CODE_FILES):
                 sys_name, "\\n".join(item["paths"]), item["name"], item["threat"], item["rating"], item["fix"], item["status"], item["date"]
             ])
 
-# Calculated Strings for Paragraph Replace Blocks[cite: 8]
-vuln_tot = sum(ops_metrics.values())
-code_tot = sum(sam_metrics.values())
-
+# Calculated Strings for Paragraph Replace Blocks
 v_high_med_low = ops_metrics["mitigated"] + ops_metrics["in_progress"] + ops_metrics["accepted"]
 c_high_med_low = sam_metrics["mitigated"] + sam_metrics["in_progress"] + sam_metrics["accepted"]
 
@@ -1411,6 +1394,9 @@ replacements = [
 ]
 
 doc = Document("batch_verification_template.docx")
+
+# Universal pointer replacement pass
+process_wab_pointer_replacements(doc, wab_data)
 
 def synchronize_and_replace_dates(p, lookup_tuples):
     if p.style.name.startswith("Heading"): return
@@ -1435,16 +1421,6 @@ def synchronize_and_replace_dates(p, lookup_tuples):
 
 # Paragraph text replacement
 for p_idx, p in enumerate(list(doc.paragraphs)):
-    lower_normalized = p.text.lower().replace(" ", "").replace(",", "").replace("*", "")
-    
-    if "systemnamescopiedfromwab1.1partb" in lower_normalized:
-        p.text = ""
-        current_anchor = p
-        if detected_systems_list:
-            for idx, s_name in enumerate(detected_systems_list):
-                current_anchor = insert_paragraph_after(current_anchor, f"{idx + 1}.  {s_name}", style='Normal')
-        continue
-
     synchronize_and_replace_dates(p, replacements)
 
 # Process Tables
@@ -1452,7 +1428,7 @@ for table in doc.tables:
     if len(table.rows) == 0 or len(table.rows[0].cells) == 0: continue
     first_row_text = "".join(cell.text.lower() for cell in table.rows[0].cells)
 
-    # VR Matrix Tables[cite: 8]
+    # VR Matrix Tables
     if "verification status of security risk assessment" in first_row_text:
         for row in table.rows:
             r_text = "".join(c.text.lower() for c in row.cells)
@@ -1470,7 +1446,7 @@ for table in doc.tables:
                 apply_text_styling_and_borders(row.cells[3], str(ops_metrics["accepted"] + sam_metrics["accepted"]), center=True)
         continue
 
-    # Results Table breakdown (Vulnerabilities and Code Review matrixes)[cite: 8]
+    # Results Table breakdown
     if "vulnerability assessment and penetration test" in first_row_text:
         for r_idx, row in enumerate(table.rows):
             r_label = row.cells[0].text.lower()
@@ -1543,7 +1519,7 @@ for table in doc.tables:
                 apply_text_styling_and_borders(row.cells[5], str(tot_a), center=True)
         continue
 
-    # VR Detailed Tables mapping[cite: 8]
+    # VR Detailed Tables mapping
     if "vulnerability assessment and web penetration test" in first_row_text and "target completion date" in first_row_text:
         for r_idx in range(len(table.rows) - 1, 0, -1): table._tbl.remove(table.rows[r_idx]._tr)
         for sys_name, findings in system_vulnerabilities_map.items():
