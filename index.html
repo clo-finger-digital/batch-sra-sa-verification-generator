@@ -86,7 +86,7 @@
 
             <section class="bg-slate-800 rounded-lg p-6 border border-slate-700 shadow-xl space-y-4">
                 <h2 class="text-xl font-bold text-white mb-2">Mandatory Source Submissions</h2>
-                <p class="text-xs text-slate-400 mb-4">Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">verification template.docx</code>.</p>
+                <p class="text-xs text-slate-400 mb-4">Note: The base template file must be placed in your repository folder named exactly <code class="text-blue-400">batch verification template.docx</code>.</p>
                 
                 <div class="space-y-4">
                     <div class="p-4 bg-slate-950 border border-dashed border-blue-500/50 rounded-lg">
@@ -157,7 +157,7 @@
 
             <section class="bg-slate-800 rounded-lg p-6 border border-slate-700 shadow-xl space-y-4">
                 <h2 class="text-xl font-bold text-white mb-2">Source Brief File Ingestion</h2>
-                <p class="text-xs text-slate-400 mb-4">Ensure your clean target template layout file is uploaded to your GitHub Pages repository folder path matching exactly <code class="text-blue-400">SA template.docx</code>.</p>
+                <p class="text-xs text-slate-400 mb-4">Ensure your clean target template layout file is uploaded to your GitHub Pages repository folder path matching exactly <code class="text-blue-400">batch SA template.docx</code>.</p>
                 
                 <div class="space-y-4">
                     <div class="p-4 bg-slate-950 border border-dashed border-blue-500/50 rounded-lg">
@@ -220,7 +220,7 @@
 
             <section class="bg-slate-800 rounded-lg p-6 border border-slate-700 shadow-xl space-y-4">
                 <h2 class="text-xl font-bold text-white mb-2">Mandatory Source Submissions</h2>
-                <p class="text-xs text-slate-400 mb-4">Note: The base template file must be placed in your repository root folder named exactly <code class="text-blue-400">new SRA template.docx</code>.</p>
+                <p class="text-xs text-slate-400 mb-4">Note: The base template file must be placed in your repository root folder named exactly <code class="text-blue-400">batch SRA template.docx</code>.</p>
                 
                 <div class="space-y-4">
                     <div class="p-4 bg-slate-950 border border-dashed border-blue-500/50 rounded-lg">
@@ -598,12 +598,12 @@ js.updateUIFields("${prefix}", dept_name, dept_abbr, json.dumps(unique_systems))
             const computedDateNumeric = `${dayNum}-${monthNum}-${yearText}`;
 
             logToVerificationConsole(`Date Sync: Active generation timestamp set to ${computedDateText}`);
-            logToVerificationConsole("Fetching 'verification template.docx' via deployment route branch...");
+            logToVerificationConsole("Fetching 'batch verification template.docx' via deployment route branch...");
 
             try {
-                const templateData = await fetchTemplateFile("verification template.docx");
-                try { pyodideModule.FS.unlink("verification_template.docx"); } catch(e){}
-                pyodideModule.FS.writeFile("verification_template.docx", templateData);
+                const templateData = await fetchTemplateFile("batch verification template.docx");
+                try { pyodideModule.FS.unlink("batch_verification_template.docx"); } catch(e){}
+                pyodideModule.FS.writeFile("batch_verification_template.docx", templateData);
             } catch (err) {
                 logToVerificationConsole("Fetch Error: " + err.message);
                 return;
@@ -912,7 +912,7 @@ replacements = [
     ("*total vulnerabilities*", str(total_findings_count))
 ]
 
-doc = Document("verification_template.docx")
+doc = Document("batch_verification_template.docx")
 
 def run_replace_mechanism(p, lookup_tuples):
     if p.style.name.startswith("Heading"): 
@@ -1171,11 +1171,11 @@ print("Verification Report Automation Pipeline Task Finalized Successfully.")
                 return;
             }
 
-            logToSaConsole("Fetching 'SA template.docx' via deployment route branch...");
+            logToSaConsole("Fetching 'batch SA template.docx' via deployment route branch...");
             try {
-                const templateData = await fetchTemplateFile("SA template.docx");
-                try { pyodideModule.FS.unlink("SA_template.docx"); } catch(e){}
-                pyodideModule.FS.writeFile("SA_template.docx", templateData);
+                const templateData = await fetchTemplateFile("batch SA template.docx");
+                try { pyodideModule.FS.unlink("batch_SA_template.docx"); } catch(e){}
+                pyodideModule.FS.writeFile("batch_SA_template.docx", templateData);
             } catch (err) {
                 logToSaConsole("Fetch Failure: " + err.message);
                 return;
@@ -1383,7 +1383,7 @@ def process_token_replacements(p, lookup_tuples):
             p.text = full_text
 
 print("Injecting compiled variables into target SA layout sections...")
-doc = Document("SA_template.docx")
+doc = Document("batch_SA_template.docx")
 
 for section in doc.sections:
     for header_p in section.header.paragraphs: 
@@ -1542,12 +1542,12 @@ print("Security Audit Automation Pipeline Task Finalized Successfully.")
             const computedDateNumeric = `${dayNum}-${monthNum}-${yearText}`;
 
             logToSraConsole(`Date Sync: Active generation timestamp set to ${computedDateText}`);
-            logToSraConsole("Fetching 'new SRA template.docx' via repository root route branch...");
+            logToSraConsole("Fetching 'batch SRA template.docx' via repository root route branch...");
 
             try {
-                const templateData = await fetchTemplateFile("new SRA template.docx");
-                try { pyodideModule.FS.unlink("new_SRA_template.docx"); } catch(e){}
-                pyodideModule.FS.writeFile("new_SRA_template.docx", templateData);
+                const templateData = await fetchTemplateFile("batch SRA template.docx");
+                try { pyodideModule.FS.unlink("batch_SRA_template.docx"); } catch(e){}
+                pyodideModule.FS.writeFile("batch_SRA_template.docx", templateData);
             } catch (err) {
                 logToSraConsole("Fetch Error: " + err.message);
                 return;
@@ -1901,7 +1901,7 @@ replacements = [
     ("*grand total items items*", total_vuln_str)
 ]
 
-doc = Document("new_SRA_template.docx")
+doc = Document("batch_SRA_template.docx")
 
 def run_replace_mechanism(p, lookup_tuples):
     full_text = "".join(run.text for run in p.runs)
