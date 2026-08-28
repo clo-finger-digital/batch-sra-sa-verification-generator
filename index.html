@@ -730,7 +730,7 @@ def format_asset_address(ip_raw, port_raw, default_proto="tcp"):
         return f"{clean_ip}{proto}{clean_port}"
     return clean_ip
 
-def parse_and_cluster_sources(xlsx_paths, prefix_filter, global_metrics):
+def parse_and_cluster_sources(xlsx_paths, prefix_filter, global_metrics, status_metrics):
     if not xlsx_paths:
         return []
     groups = {}
@@ -762,6 +762,7 @@ def parse_and_cluster_sources(xlsx_paths, prefix_filter, global_metrics):
                 col_obs = str(row[2]).strip() if len(row) > 2 and row[2] is not None else ""
                 raw_ip = str(row[3]).strip() if len(row) > 3 and row[3] is not None else ""
                 raw_port = str(row[4]).strip() if (len(row) > 4 and row[4] is not None) else ""
+                raw_status = str(row[7]).strip().lower() if (len(row) > 7 and row[7] is not None) else "completed"
                 vuln_name = str(row[8]).strip() if len(row) > 8 and row[8] is not None else ""    
                 threat_desc = str(row[9]).strip() if len(row) > 9 and row[9] is not None else ""  
                 reremediation = str(row[10]).strip() if len(row) > 10 and row[10] is not None else "" 
@@ -801,6 +802,12 @@ def parse_and_cluster_sources(xlsx_paths, prefix_filter, global_metrics):
 
                 unique_hash_key = (system_title, vuln_name.lower().strip(), threat_desc.lower().strip())
 
+                status_cat = "completed"
+                if "progress" in raw_status or "pending" in raw_status:
+                    status_cat = "in_progress"
+                elif "accept" in raw_status:
+                    status_cat = "accepted"
+
                 if unique_hash_key not in groups:
                     groups[unique_hash_key] = {
                         "sys": system_title,
@@ -810,20 +817,26 @@ def parse_and_cluster_sources(xlsx_paths, prefix_filter, global_metrics):
                         "rating": combined_risk_rating,
                         "fix": reremediation
                     }
+                    if sev_key in global_metrics:
+                        global_metrics[sev_key] += 1
+                    if status_cat in status_metrics and sev_key in status_metrics[status_cat]:
+                        status_metrics[status_cat][sev_key] += 1
                 else:
                     if asset_location not in groups[unique_hash_key]["locations"]:
                         groups[unique_hash_key]["locations"].append(asset_location)
 
-                if sev_key in global_metrics:
-                    global_metrics[sev_key] += 1
-                    
     return [[item["sys"], "\\n".join(item["locations"]), item["name"], item["threat"], item["rating"], item["fix"], ""] for item in groups.values()]
 
 global_metrics = {"high": 0, "medium": 0, "low": 0, "aoi": 0}
+status_metrics = {
+    "completed": {"high": 0, "medium": 0, "low": 0, "aoi": 0},
+    "in_progress": {"high": 0, "medium": 0, "low": 0, "aoi": 0},
+    "accepted": {"high": 0, "medium": 0, "low": 0, "aoi": 0}
+}
 
-v_vulnerabilities = parse_and_cluster_sources(plan_file_list, "V", global_metrics)
-a_vulnerabilities = parse_and_cluster_sources(plan_file_list, "A", global_metrics)
-c_vulnerabilities = parse_and_cluster_sources(code_file_list, "C", global_metrics) if code_file_list else []
+v_vulnerabilities = parse_and_cluster_sources(plan_file_list, "V", global_metrics, status_metrics)
+a_vulnerabilities = parse_and_cluster_sources(plan_file_list, "A", global_metrics, status_metrics)
+c_vulnerabilities = parse_and_cluster_sources(code_file_list, "C", global_metrics, status_metrics) if code_file_list else []
 
 total_findings_count = sum(global_metrics.values())
 
@@ -963,6 +976,19 @@ body_elements = doc.element.body
 tbl_index_map = {child: idx for idx, child in enumerate(body_elements) if isinstance(child, CT_Tbl)}
 has_populated_section_9 = False
 
+def populate_doc_table(p_node, data_source):
+    current_node = p_node._p.getnext()
+    while current_node is not None and not isinstance(current_node, CT_Tbl):
+        current_node = current_node.getnext()
+    if current_node is not None and current_node in tbl_index_map:
+        target_table = doc.tables[list(tbl_index_map.keys()).index(current_node)]
+        for row_item in data_source:
+            new_row = target_table.add_row()
+            for cell_idx, val in enumerate(row_item):
+                if cell_idx < len(new_row.cells):
+                    apply_text_styling_and_borders(new_row.cells[cell_idx], str(val))
+    p_node.text = ""
+
 for p_idx, p in enumerate(list(doc.paragraphs)):
     lower_normalized = p.text.lower().replace(" ", "").replace(",", "")
     
@@ -1005,47 +1031,14 @@ for p_idx, p in enumerate(list(doc.paragraphs)):
         else:
             p.text = ""
 
-    elif "copy from follow up plan, all v numbered rows" in p.text.lower() or ("vulnerability assessment" in p.text.lower() and "v numbered" in p.text.lower()):
-        target_source = v_vulnerabilities
-        current_node = p._p.getnext()
-        while current_node is not None and not isinstance(current_node, CT_Tbl):
-            current_node = current_node.getnext()
-        if current_node is not None and current_node in tbl_index_map:
-            target_table = doc.tables[list(tbl_index_map.keys()).index(current_node)]
-            for row_item in target_source:
-                new_row = target_table.add_row()
-                for cell_idx, val in enumerate(row_item):
-                    if cell_idx < len(new_row.cells):
-                        apply_text_styling_and_borders(new_row.cells[cell_idx], str(val))
-        p.text = ""
+    elif "copy from follow up plan, all v numbered rows" in p.text.lower() or "10.1" in p.text or ("vulnerability assessment" in p.text.lower() and "v numbered" in p.text.lower()):
+        populate_doc_table(p, v_vulnerabilities)
 
     elif "copy from follow up plan, all a numbered rows" in p.text.lower() or ("penetration test" in p.text.lower() and "a numbered" in p.text.lower()):
-        target_source = a_vulnerabilities
-        current_node = p._p.getnext()
-        while current_node is not None and not isinstance(current_node, CT_Tbl):
-            current_node = current_node.getnext()
-        if current_node is not None and current_node in tbl_index_map:
-            target_table = doc.tables[list(tbl_index_map.keys()).index(current_node)]
-            for row_item in target_source:
-                new_row = target_table.add_row()
-                for cell_idx, val in enumerate(row_item):
-                    if cell_idx < len(new_row.cells):
-                        apply_text_styling_and_borders(new_row.cells[cell_idx], str(val))
-        p.text = ""
+        populate_doc_table(p, a_vulnerabilities)
 
-    elif "copy from code review, all c numbered rows" in p.text.lower() or ("source code review" in p.text.lower() and "c numbered" in p.text.lower()):
-        target_source = c_vulnerabilities
-        current_node = p._p.getnext()
-        while current_node is not None and not isinstance(current_node, CT_Tbl):
-            current_node = current_node.getnext()
-        if current_node is not None and current_node in tbl_index_map:
-            target_table = doc.tables[list(tbl_index_map.keys()).index(current_node)]
-            for row_item in target_source:
-                new_row = target_table.add_row()
-                for cell_idx, val in enumerate(row_item):
-                    if cell_idx < len(new_row.cells):
-                        apply_text_styling_and_borders(new_row.cells[cell_idx], str(val))
-        p.text = ""
+    elif "copy from code review, all c numbered rows" in p.text.lower() or "10.2" in p.text or ("source code review" in p.text.lower() and "c numbered" in p.text.lower()):
+        populate_doc_table(p, c_vulnerabilities)
     else:
         run_replace_mechanism(p, replacements)
 
@@ -1084,15 +1077,21 @@ for table in doc.tables:
         for row in table.rows:
             f_cell_text = row.cells[0].text.lower() if row.cells else ""
             if "completed rectifications" in f_cell_text:
-                for idx, val in enumerate([0, 0, 0, 0, 0]):
+                m = status_metrics["completed"]
+                vals = [sum(m.values()), m["high"], m["medium"], m["low"], m["aoi"]]
+                for idx, val in enumerate(vals):
                     if idx + 1 < len(row.cells):
                         apply_text_styling_and_borders(row.cells[idx + 1], str(val), center=True)
             elif "in-progress rectifications" in f_cell_text:
-                for idx, val in enumerate([0, 0, 0, 0, 0]):
+                m = status_metrics["in_progress"]
+                vals = [sum(m.values()), m["high"], m["medium"], m["low"], m["aoi"]]
+                for idx, val in enumerate(vals):
                     if idx + 1 < len(row.cells):
                         apply_text_styling_and_borders(row.cells[idx + 1], str(val), center=True)
             elif "accepted rectifications" in f_cell_text:
-                for idx, val in enumerate([0, 0, 0, 0, 0]):
+                m = status_metrics["accepted"]
+                vals = [sum(m.values()), m["high"], m["medium"], m["low"], m["aoi"]]
+                for idx, val in enumerate(vals):
                     if idx + 1 < len(row.cells):
                         apply_text_styling_and_borders(row.cells[idx + 1], str(val), center=True)
             elif "total number of rectifications" in f_cell_text:
